@@ -1,0 +1,12 @@
+package:
+  name: reservoir_hjoy
+  version: 1.0
+
+build:
+  number: 1
+
+requirements:
+  run:
+    - python
+about:
+  summary: Forked version of reservoir
