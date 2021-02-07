@@ -358,10 +358,11 @@ class EchoStateNetworkCV:
                  scoring_method='nrmse', log_space=True, tanh_alpha=1., esn_burn_in=0, acquisition_type='LCB',
                  max_time=np.inf, n_jobs=1, random_seed=None, esn_feedback=None, update_interval=1, verbose=True,
                  plot=True, target_score=0., exp_weights = False, obs_index = None, target_index = None, 
-                 noise = 0, model_type = "random", activation_function = "tanh", input_weight_type = "uniform", 
+                 noise = 0, model_type = "random", activation_function = nn.Tanh(), input_weight_type = "uniform", 
                  Distance_matrix = None, n_res = 1, count = None, reservoir = None,
                  backprop = False, interactive = False, approximate_reservoir = True,
-                 failure_tolerance = 1, length_min = None, device = device, learning_rate = 0.005):
+                 failure_tolerance = 1, length_min = None, device = device, learning_rate = 0.005,
+                 already_normalized = False):
         
         print("FEEDBACK:", esn_feedback, ", device:", device)
         self.learning_rate = learning_rate
@@ -375,6 +376,8 @@ class EchoStateNetworkCV:
         self.interactive = interactive
         if interactive:
             self.fig, self.ax = pl.subplots(1,3, figsize = (16,4))
+
+        self.already_normalized = already_normalized
         
         self.backprop = backprop
         self.batch_size = batch_size
@@ -643,15 +646,15 @@ class EchoStateNetworkCV:
         # Build network
         esn = self.model(**arguments, exponential = self.exp_weights, activation_f = self.activation_function,
                 obs_idx = self.obs_index, resp_idx = self.target_index, plot = False, model_type = self.model_type,
-                input_weight_type = self.input_weight_type)
+                input_weight_type = self.input_weight_type, already_normalized = already_normalized)
                 #random_seed = self.random_seed) Distance_matrix = self.Distance_matrix)
 
         # Train
-        esn.train(x=train_x, y=train_y, burn_in=self.esn_burn_in)
+        esn.train2(x=train_x, y=train_y, burn_in=self.esn_burn_in)
 
         # Validation score
-        score = esn.test(x=validate_x, y=validate_y, scoring_method=self.scoring_method, alpha=self.alpha) 
-        #steps_ahead=self.steps_ahead, alpha=self.alpha)
+        score = esn.test2(x=validate_x, y=validate_y, scoring_method=self.scoring_method, 
+                            steps_ahead=self.steps_ahead, alpha=self.alpha)
 
         return score
 
@@ -724,6 +727,9 @@ class EchoStateNetworkCV:
         #self.parameters = parameters
         training_y = self.y
         training_x = self.x
+
+        print("self.x", self.x.shape)
+        print("self.y", self.y.shape)
 
         # Get number of series
         self.n_series = training_y.shape[1]
@@ -872,16 +878,16 @@ class EchoStateNetworkCV:
             RC = self.model(**arguments, exponential = self.exp_weights, activation_f = self.activation_function,
                 obs_idx = self.obs_index, resp_idx = self.target_index,  model_type = self.model_type,
                 input_weight_type = self.input_weight_type, approximate_reservoir = self.approximate_reservoir,
-                backprop = self.backprop)
+                backprop = self.backprop, already_normalized = self.already_normalized)
                 # Distance_matrix = self.Distance_matrix)
                 # random_seed = random_seed) plot = False,
 
             train_x, train_y, validate_x, validate_y = self.objective_sampler()
             
-            RC.train(x = train_x, y = train_y,  burn_in=self.esn_burn_in, learning_rate = self.learning_rate)
+            RC.train2(x = train_x, y = train_y,  burn_in=self.esn_burn_in, learning_rate = self.learning_rate)
 
             # Validation score
-            score, pred_ = RC.test(x=validate_x, y=validate_y, scoring_method='mse', steps_ahead = self.steps_ahead)
+            score, pred_ = RC.test2(x=validate_x, y=validate_y, scoring_method='mse', steps_ahead = self.steps_ahead)
             
             if self.count % self.batch_size == 0:
                 self.train_plot_update(pred_ = pred_, validate_y = validate_y, steps_displayed = pred_.shape[0])
