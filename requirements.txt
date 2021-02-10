@@ -9,3 +9,5 @@ pandas
 seaborn
 pathlib
 matplotlib
+torch
+gpytorch

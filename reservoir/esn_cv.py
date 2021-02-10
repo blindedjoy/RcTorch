@@ -728,9 +728,6 @@ class EchoStateNetworkCV:
         training_y = self.y
         training_x = self.x
 
-        print("self.x", self.x.shape)
-        print("self.y", self.y.shape)
-
         # Get number of series
         self.n_series = training_y.shape[1]
 
@@ -904,7 +901,7 @@ class EchoStateNetworkCV:
             else:
                 error = torch.cat([error, score], dim = 0)
                 
-            self.errorz.append(score.type(torch.float32))
+            self.errorz.append(score.type(torch.float32).detach())
         
         #print('success_tolerance', self.state.success_counter)
         #print('failure_tolerance', self.state.failure_counter)
