@@ -41,8 +41,6 @@ import time
 
 #pytorch elastic net regularization:
 #https://github.com/jayanthkoushik/torch-gel
-from gel.gelfista import make_A, gel_solve
-
 
 dtype=torch.float 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -128,6 +126,11 @@ class ElasticNetRegularization(nn.Module):
             X.requires_grad = True
         if not y.requires_grad:
             y.requires_grad = True
+
+        if not X.requires_grad:
+            assert 1 == 0
+        if not y.requires_grad:
+            assert 1 == 0
         
         self.linear = torch.nn.Linear(self.n_features, 1)
         
@@ -147,10 +150,11 @@ class ElasticNetRegularization(nn.Module):
             train_X = self.normalize(inputs = train_X, keep = False)
             
             prediction = self.forward(train_X)
+            if not prediction.requires_grad:
+                prediction.requires_grad = True
             loss = self.elastic_net_loss(prediction, y[~val_idx,:])
             if not e:   
                 loss.backward(retain_graph=True)
-                print("great success")
             else:
                 loss.backward()
             self.losses.append(loss.detach())
@@ -163,14 +167,14 @@ class ElasticNetRegularization(nn.Module):
                     break
             optimizer.step()
                 
-        return self.linear.weight.detach()
+        return self.linear.weight.detach(), self.linear.bias.detach(), self.losses
     
     def forward(self, X):
         return self.linear(X)
     
     def predict(self, X):
         X = self.normalize(inputs = X, keep = False)
-        #y = self.normalize(outputs = y, keep = False)
+
         with torch.no_grad():
             pred = self.forward(X)
         
@@ -184,10 +188,11 @@ class EchoStateNetwork(nn.Module):
                  already_normalized = False, bias = "uniform", connectivity = 0.1, random_state = 123,
                  exponential = False, obs_idx = None, resp_idx = None,
                  reservoir = None, model_type = "uniform", input_weight_type = None, approximate_reservoir = True,
-                 device = device, epochs = 7, PyESNnoise=0.001, l2_prop = 1):
+                 device = device, epochs = 7, PyESNnoise=0.001, l2_prop = 1, reg_lr = 10**-4):
         super().__init__()
         
         self.l2_prop = l2_prop 
+        self.reg_lr = reg_lr
 
         self.epochs = epochs
 
@@ -225,9 +230,7 @@ class EchoStateNetwork(nn.Module):
         
         #backprop layers
         self.LinRes = nn.Linear(self.n_nodes, self.n_nodes, bias = False)
-        #self.LinIn = nn.Linear(input_size, n_nodes)
-        #self.LinH = nn.Linear(n_nodes, n_nodes, bias = False)
-        #self.LinOut = nn.Linear(n_nodes, output_size)
+
         
         #https://towardsdatascience.com/logistic-regression-on-mnist-with-pytorch-b048327f8d19
         self.classification = classification
@@ -414,7 +417,7 @@ class EchoStateNetwork(nn.Module):
                     feedback_weights = self.feedback_scaling * self.reservoir.feedback_weights
                     in_weights = torch.hstack((in_weights, feedback_weights)).view(self.n_nodes, -1)
    
-        in_weights = nn.Parameter(in_weights, requires_grad = False, bias = None).to(self.device)
+        in_weights = nn.Parameter(in_weights, requires_grad = False).to(self.device)
         in_weights._name_ = "in_weights"
 
         return(in_weights)
@@ -560,9 +563,6 @@ class EchoStateNetwork(nn.Module):
 
         self.in_weights = self.set_Win()#inputs)
         inputs._name_ = "inputs"
-
-        #output weights
-        self.LinOut = nn.Linear(self.n_nodes + 2, y.shape[1]).to(device)
 
         self.burn_in = burn_in
             
@@ -713,31 +713,18 @@ class EchoStateNetwork(nn.Module):
 
                 extended_states = torch.hstack((self.state, x))
                 extended_states._name_ = "complete_data"
-                """
-                # Include everything after burn_in
-                train_x = extended_states[burn_in:]  
-                train_y = y[burn_in:]# + 1:] if self.feedback else y[burn_in:]
 
-                # Ridge regression
-                ridge_x = torch.matmul(train_x.T, train_x) + \
-                                       self.regularization * torch.eye(train_x.shape[1], device = self.device)
-                ridge_y = torch.matmul(train_x.T, train_y)
-
-                # Solver solution (fast)
-                out_weights_sol = torch.solve(ridge_y, ridge_x)
-    
-                weight = out_weights_sol.solution
-
-                self.LinOut.weight = nn.Parameter(weight.view(-1,1), requires_grad = False)
-                """
                 train_x = extended_states[burn_in:, :]
                 train_y = y[burn_in:]
+
                 if not self.regularization:
+                    print("no regularization")
                     pinv = torch.pinverse(train_x)
                     weight = torch.matmul(pinv,
                                           train_y )
                 elif self.l2_prop == 1:
                     print("ridge regularizing")
+                    self.losses = None
                     ridge_x = torch.matmul(train_x.T, train_x) + \
                                        self.regularization * torch.eye(train_x.shape[1], device = self.device)
                     ridge_y = torch.matmul(train_x.T, train_y)
@@ -745,15 +732,21 @@ class EchoStateNetwork(nn.Module):
 
                     #torch.solve solves AX = B. Here X is beta_hat, A is ridge_x, and B is ridge_y
                     weight = torch.solve(ridge_y, ridge_x).solution
-                    if self.regularization == -1:
-                        ridge_x_gel = make_A(rigde_x, ns)
+
                 else:
-                    my_elastic = ElasticNetRegularization(iterations = 4000, 
-                                      l2_proportion = self.l2_prop, regularization_parameter = self.regularization,
-                                      fail_tolerance = 30, val_prop = 0.5)
-                    weight = my_elastic.fit(train_x, train_y)
+                    #this needs more work, but it is in progress.
+                    print("elastic net regularizing")
+                    with torch.enable_grad():
+                        my_elastic = ElasticNetRegularization(iterations = 4000, 
+                                          l2_proportion = self.l2_prop, 
+                                          regularization_parameter = self.regularization,
+                                          fail_tolerance = 30, val_prop = 0.5, learning_rate = self.reg_lr)
+                        weight, bias, losses = my_elastic.fit(train_x, train_y)
+                        self.losses = losses
+                    self.LinOut.bias  = nn.Parameter(bias.view(-1,1), requires_grad = False)
 
                 #self.inverse_out_activation().T
+                
 
                 self.LinOut.weight = nn.Parameter(weight.view(-1,1), requires_grad = False)
                 
@@ -1077,7 +1070,6 @@ class EchoStateNetwork(nn.Module):
             lastoutput = np.zeros(self.n_outputs)
 
         inputs = torch.vstack([lastinput, x]).view(-1,1)
-        print("inputs", inputs.shape)
 
         states = torch.zeros((n_samples + 1, self.n_nodes))
         states[0,:] = laststate

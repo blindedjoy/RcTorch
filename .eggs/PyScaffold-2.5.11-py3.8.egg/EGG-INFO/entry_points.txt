@@ -1,0 +1,31 @@
+[console_scripts]
+putup = pyscaffold.cli:run
+
+[distutils.setup_keywords]
+use_pyscaffold = pyscaffold.integration:pyscaffold_keyword
+
+[egg_info.writers]
+pbr.json = pyscaffold.contrib:write_pbr_json
+
+[setuptools.file_finders]
+setuptools_scm = pyscaffold.contrib:scm_find_files
+
+[setuptools_scm.files_command]
+.git = pyscaffold.contrib:scm_list_files_in_archive
+.hg = pyscaffold.contrib:SCM_HG_FILES_COMMAND
+
+[setuptools_scm.local_scheme]
+dirty-tag = pyscaffold.contrib:scm_get_local_dirty_tag
+node-and-date = pyscaffold.contrib:scm_get_local_node_and_date
+node-and-timestamp = pyscaffold.contrib:scm_get_local_node_and_timestamp
+
+[setuptools_scm.parse_scm]
+.git = pyscaffold.contrib:scm_parse_git
+.hg = pyscaffold.contrib:scm_parse_hg
+.hg_archival.txt = pyscaffold.contrib:scm_parse_archival
+PKG-INFO = pyscaffold.contrib:scm_parse_pkginfo
+
+[setuptools_scm.version_scheme]
+guess-next-dev = pyscaffold.contrib:scm_guess_next_dev_version
+post-release = pyscaffold.contrib:scm_postrelease_version
+

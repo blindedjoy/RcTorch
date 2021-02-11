@@ -362,10 +362,11 @@ class EchoStateNetworkCV:
                  Distance_matrix = None, n_res = 1, count = None, reservoir = None,
                  backprop = False, interactive = False, approximate_reservoir = True,
                  failure_tolerance = 1, length_min = None, device = device, learning_rate = 0.005,
-                 already_normalized = False):
+                 already_normalized = False, reg_lr = 10**-4):
         
         print("FEEDBACK:", esn_feedback, ", device:", device)
         self.learning_rate = learning_rate
+        self.reg_lr = reg_lr
         
         if 'cuda' in str(device):
             torch.cuda.empty_cache()
@@ -795,15 +796,16 @@ class EchoStateNetworkCV:
 
         plt.legend()
     
-    def train_plot_update(self, pred_, validate_y, steps_displayed):
+    def train_plot_update(self, pred_, validate_y, steps_displayed, elastic_losses, l2_prop):
         
         #plotting
         if self.interactive:
             pred_2plot = pred_.clone().detach().to("cpu")
             validate_y_2plot = validate_y.clone().detach().to("cpu")
-            if len(self.errorz) % 1 == 0:
+            if len(self.errorz) % 5 == 0:
                 self.ax[1].clear()
-                self.ax[1].plot(validate_y_2plot, alpha = 0.4, color = "blue") #[:steps_displayed]
+            #    self.ax[1].clear()
+            #    #self.ax[1].plot(validate_y_2plot, alpha = 0.4, color = "blue") #[:steps_displayed]
             #plot 1:
             #log_resid = torch.log((validate_y - pred_)**2)
             if self.count == 0:
@@ -819,15 +821,17 @@ class EchoStateNetworkCV:
             self.ax[0].legend()
             
             #plot 2:
-            self.my_loss_plot(ax = self.ax[1], pred = pred_2plot, valid = validate_y_2plot, start_loc = 1800)
-            
-            #pred_[pred_.shape[0] - 1, :]
-            #self.ax[1].set_ylim(validate_y.min().item() - 0.1, validate_y.max().item() + 0.1 )
-            self.ax[1].set_ylim(-1, 1)
-            self.ax[1].set_title("all guesses")
-            self.ax[1].set_ylabel("y")
-            self.ax[1].set_xlabel("time step")
-            self.ax[1].set_ylim(self.y.min().item() - 0.1, self.y.max().item() )         
+            #self.my_loss_plot(ax = self.ax[1], pred = pred_2plot, valid = validate_y_2plot, start_loc = 1800)
+            print("elastic_losses")
+            if l2_prop != 1:
+                self.ax[1].plot(elastic_losses )#torch.log
+
+                #self.ax[1].set_ylim(validate_y.min().item() - 0.1, validate_y.max().item() + 0.1 )
+                #self.ax[1].set_ylim(-1, 1)
+                self.ax[1].set_title("elastic net regularization loss")
+                self.ax[1].set_ylabel("y")
+                self.ax[1].set_xlabel("time step")
+            #self.ax[1].set_ylim(self.y.min().item() - 0.1, self.y.max().item() )         
 
             #plot 3:
             self.ax[2].clear()
@@ -871,11 +875,13 @@ class EchoStateNetworkCV:
                 assert 1 == 0
                 print("failed to load")
 
+            print("arguments", arguments)
+
             # Build network
             RC = self.model(**arguments, exponential = self.exp_weights, activation_f = self.activation_function,
                 obs_idx = self.obs_index, resp_idx = self.target_index,  model_type = self.model_type,
                 input_weight_type = self.input_weight_type, approximate_reservoir = self.approximate_reservoir,
-                backprop = self.backprop, already_normalized = self.already_normalized)
+                backprop = self.backprop, already_normalized = self.already_normalized, reg_lr = self.reg_lr)
                 # Distance_matrix = self.Distance_matrix)
                 # random_seed = random_seed) plot = False,
 
@@ -883,11 +889,13 @@ class EchoStateNetworkCV:
             
             RC.train2(x = train_x, y = train_y,  burn_in=self.esn_burn_in, learning_rate = self.learning_rate)
 
+            print(RC.l2_prop)
             # Validation score
             score, pred_ = RC.test2(x=validate_x, y=validate_y, scoring_method='mse', steps_ahead = self.steps_ahead)
             
             if self.count % self.batch_size == 0:
-                self.train_plot_update(pred_ = pred_, validate_y = validate_y, steps_displayed = pred_.shape[0])
+                self.train_plot_update(pred_ = pred_, validate_y = validate_y, 
+                    steps_displayed = pred_.shape[0], elastic_losses = RC.losses, l2_prop  = RC.l2_prop)
             
             #make the maximum value of the error 10000 to avoid inf.
             score = min(score, torch.tensor(1000, device = self.device))

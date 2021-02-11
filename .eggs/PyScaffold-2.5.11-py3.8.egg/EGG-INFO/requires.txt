@@ -1,0 +1,9 @@
+six
+
+[all]
+cookiecutter
+django
+
+[test]
+pytest
+pytest-cov
