@@ -39,6 +39,11 @@ import random
 import seaborn as sns
 import time
 
+#pytorch elastic net regularization:
+#https://github.com/jayanthkoushik/torch-gel
+from gel.gelfista import make_A, gel_solve
+
+
 dtype=torch.float 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 dtype = torch.double
@@ -70,6 +75,108 @@ colorz = {
    "underline" : '\033[4m'
 }
 
+class ElasticNetRegularization(nn.Module):
+    def __init__(self, iterations, l2_proportion, regularization_parameter, learning_rate = None,
+                       fail_tolerance = 10, val_prop = 0.2):
+        
+        super().__init__()
+        
+        self.learning_rate = learning_rate
+        self.iterations = iterations
+        self.l2_prop= l2_proportion
+        self.reg_param = regularization_parameter
+        self.val_prop = val_prop
+        self.fail_tolerance = fail_tolerance
+    
+    def normalize(self, inputs = None, outputs = None, keep = False):
+        
+        if type(inputs) != type(None):
+            if keep:
+                self.input_means  = inputs.mean(axis = 0)
+                self.input_stds  = inputs.std(axis = 0)
+            normalized_tensor = (inputs - self.input_means)/self.input_stds
+        if type(outputs) != type(None):
+            if keep:
+                self.output_means = outputs.mean(axis = 0)
+                self.output_stds  = outputs.std(axis = 0)
+            normalized_tensor = (outputs - self.output_means)/self.output_stds
+        
+        return normalized_tensor
+    
+    def denormalize(self, inputs = None, outputs = None):
+        if type(inputs) != type(None):
+            denormalized_tensor = (inputs +self.input_means)*self.input_stds
+        if type(outputs) != type(None):
+            denormalized_tensor = (outputs + self.output_means)*self.output_stds
+        return denormalized_tensor
+    
+    def elastic_net_loss(self, output, target):
+        l1_loss_component = (1 - self.l2_prop) * torch.sum(torch.abs(self.linear.weight))
+        l2_loss_component = self.l2_prop * torch.sum(torch.square(self.linear.weight))
+        loss = torch.sum(torch.square(output - target)) +  self.reg_param * (l1_loss_component + l2_loss_component)
+        return loss
+    
+    def fit(self, X, y):
+        self.n_features = X.shape[1]
+        self.n_samples = X.shape[0]
+        
+        with torch.enable_grad():
+            X = self.normalize(inputs = X, keep = True)
+            y = self.normalize(outputs = y, keep = True)
+
+        if not X.requires_grad:
+            X.requires_grad = True
+        if not y.requires_grad:
+            y.requires_grad = True
+        
+        self.linear = torch.nn.Linear(self.n_features, 1)
+        
+        #gradient descent learning
+        if self.learning_rate:
+            optimizer = optim.Adam(self.parameters(), lr = self.learning_rate)
+        else:
+            
+            optimizer = optim.Adam(self.parameters())
+        loss = 0
+        
+        self.losses = []
+        self.fails = []
+        for e in range(self.iterations):
+            val_idx= torch.randperm(int(self.n_samples*(self.val_prop)))
+            train_X = X[~val_idx,:]
+            train_X = self.normalize(inputs = train_X, keep = False)
+            
+            prediction = self.forward(train_X)
+            loss = self.elastic_net_loss(prediction, y[~val_idx,:])
+            if not e:   
+                loss.backward(retain_graph=True)
+                print("great success")
+            else:
+                loss.backward()
+            self.losses.append(loss.detach())
+            if e >= 1:
+                self.fails.append(self.losses[-2] < self.losses[-1])
+            if e > (self.fail_tolerance + 20):
+                n_fails =  sum(self.fails[-self.fail_tolerance:]) 
+                if n_fails == self.fail_tolerance:
+                    print(n_fails)
+                    break
+            optimizer.step()
+                
+        return self.linear.weight.detach()
+    
+    def forward(self, X):
+        return self.linear(X)
+    
+    def predict(self, X):
+        X = self.normalize(inputs = X, keep = False)
+        #y = self.normalize(outputs = y, keep = False)
+        with torch.no_grad():
+            pred = self.forward(X)
+        
+        return self.denormalize(outputs = pred).detach()
+
+
 class EchoStateNetwork(nn.Module):
     def __init__(self, spectral_radius=0.9, n_nodes = 1000, activation_f = nn.Tanh(), feedback = True,
                  noise = 0, input_scaling = 0.5, leaking_rate = 0.99, regularization = 10 **-3, backprop = False,
@@ -77,9 +184,11 @@ class EchoStateNetwork(nn.Module):
                  already_normalized = False, bias = "uniform", connectivity = 0.1, random_state = 123,
                  exponential = False, obs_idx = None, resp_idx = None,
                  reservoir = None, model_type = "uniform", input_weight_type = None, approximate_reservoir = True,
-                 device = device, epochs = 7, PyESNnoise=0.001):
+                 device = device, epochs = 7, PyESNnoise=0.001, l2_prop = 1):
         super().__init__()
         
+        self.l2_prop = l2_prop 
+
         self.epochs = epochs
 
         #faster, approximate implimentation
@@ -622,18 +731,27 @@ class EchoStateNetwork(nn.Module):
                 self.LinOut.weight = nn.Parameter(weight.view(-1,1), requires_grad = False)
                 """
                 train_x = extended_states[burn_in:, :]
+                train_y = y[burn_in:]
                 if not self.regularization:
                     pinv = torch.pinverse(train_x)
                     weight = torch.matmul(pinv,
-                                y[burn_in:])
-                else:
+                                          train_y )
+                elif self.l2_prop == 1:
+                    print("ridge regularizing")
                     ridge_x = torch.matmul(train_x.T, train_x) + \
                                        self.regularization * torch.eye(train_x.shape[1], device = self.device)
                     ridge_y = torch.matmul(train_x.T, train_y)
                     #ridge_x_inv = torch.inverse(ridge_x)
 
                     #torch.solve solves AX = B. Here X is beta_hat, A is ridge_x, and B is ridge_y
-                    weight = torch.solve(ridge_y, ridge_x)
+                    weight = torch.solve(ridge_y, ridge_x).solution
+                    if self.regularization == -1:
+                        ridge_x_gel = make_A(rigde_x, ns)
+                else:
+                    my_elastic = ElasticNetRegularization(iterations = 4000, 
+                                      l2_proportion = self.l2_prop, regularization_parameter = self.regularization,
+                                      fail_tolerance = 30, val_prop = 0.5)
+                    weight = my_elastic.fit(train_x, train_y)
 
                 #self.inverse_out_activation().T
 
