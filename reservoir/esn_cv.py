@@ -802,8 +802,11 @@ class EchoStateNetworkCV:
         if self.interactive:
             pred_2plot = pred_.clone().detach().to("cpu")
             validate_y_2plot = validate_y.clone().detach().to("cpu")
-            if len(self.errorz) % 5 == 0:
-                self.ax[1].clear()
+            try:
+                if len(self.errorz) % 5 == 0:
+                    self.ax[1].clear()
+            except:
+                pass
             #    self.ax[1].clear()
             #    #self.ax[1].plot(validate_y_2plot, alpha = 0.4, color = "blue") #[:steps_displayed]
             #plot 1:
@@ -823,14 +826,17 @@ class EchoStateNetworkCV:
             #plot 2:
             #self.my_loss_plot(ax = self.ax[1], pred = pred_2plot, valid = validate_y_2plot, start_loc = 1800)
             print("elastic_losses")
-            if l2_prop != 1:
-                self.ax[1].plot(elastic_losses )#torch.log
+            try:
+                if l2_prop != 1:
+                    self.ax[1].plot(elastic_losses )#torch.log
 
-                #self.ax[1].set_ylim(validate_y.min().item() - 0.1, validate_y.max().item() + 0.1 )
-                #self.ax[1].set_ylim(-1, 1)
-                self.ax[1].set_title("elastic net regularization loss")
-                self.ax[1].set_ylabel("y")
-                self.ax[1].set_xlabel("time step")
+                    #self.ax[1].set_ylim(validate_y.min().item() - 0.1, validate_y.max().item() + 0.1 )
+                    #self.ax[1].set_ylim(-1, 1)
+                    self.ax[1].set_title("elastic net regularization loss")
+                    self.ax[1].set_ylabel("y")
+                    self.ax[1].set_xlabel("time step")
+            except:
+                pass
             #self.ax[1].set_ylim(self.y.min().item() - 0.1, self.y.max().item() )         
 
             #plot 3:
@@ -875,7 +881,7 @@ class EchoStateNetworkCV:
                 assert 1 == 0
                 print("failed to load")
 
-            print("arguments", arguments)
+            #print("arguments", arguments)
 
             # Build network
             RC = self.model(**arguments, exponential = self.exp_weights, activation_f = self.activation_function,
@@ -1078,7 +1084,7 @@ class EchoStateNetworkCV:
         for fixed_parameter in self.fixed_parameters:
             best_parameters = {fixed_parameter : self.bounds[fixed_parameter], **best_hyper_parameters }
         
-        display.clear_output(wait=True) 
+        display.clear_output() 
         display.display(pl.gcf()) 
         
         # Return best parameters

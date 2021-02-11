@@ -39,6 +39,8 @@ import random
 import seaborn as sns
 import time
 
+from sklearn.linear_model import ElasticNet
+
 #pytorch elastic net regularization:
 #https://github.com/jayanthkoushik/torch-gel
 
@@ -75,7 +77,7 @@ colorz = {
 
 class ElasticNetRegularization(nn.Module):
     def __init__(self, iterations, l2_proportion, regularization_parameter, learning_rate = None,
-                       fail_tolerance = 10, val_prop = 0.2):
+                       fail_tolerance = 10, val_prop = 0.2, ridge_weights = None):
         
         super().__init__()
         
@@ -85,6 +87,7 @@ class ElasticNetRegularization(nn.Module):
         self.reg_param = regularization_parameter
         self.val_prop = val_prop
         self.fail_tolerance = fail_tolerance
+        self.ridge_weights  = ridge_weights
     
     def normalize(self, inputs = None, outputs = None, keep = False):
         
@@ -110,7 +113,10 @@ class ElasticNetRegularization(nn.Module):
     
     def elastic_net_loss(self, output, target):
         l1_loss_component = (1 - self.l2_prop) * torch.sum(torch.abs(self.linear.weight))
-        l2_loss_component = self.l2_prop * torch.sum(torch.square(self.linear.weight))
+        if type(self.ridge_weights) == type(None):
+            l2_loss_component = self.l2_prop * torch.sum(torch.square(self.linear.weight))
+        else:
+            l2_loss_component = self.l2_prop * torch.sum(torch.square(self.linear.weight - self.ridge_weights))
         loss = torch.sum(torch.square(output - target)) +  self.reg_param * (l1_loss_component + l2_loss_component)
         return loss
     
@@ -166,8 +172,9 @@ class ElasticNetRegularization(nn.Module):
                     print(n_fails)
                     break
             optimizer.step()
+
                 
-        return self.linear.weight.detach(), self.linear.bias.detach(), self.losses
+        return self.linear, self.losses
     
     def forward(self, X):
         return self.linear(X)
@@ -383,7 +390,7 @@ class EchoStateNetwork(nn.Module):
         with torch.no_grad():
             
             if not self.reservoir or 'in_weights' not in dir(self.reservoir): 
-                print("GENERATING IN WEIGHTS")
+                #print("GENERATING IN WEIGHTS")
 
                 in_weights = torch.rand(self.n_nodes, self.n_inputs, generator = self.random_state, device = self.device)
                 in_weights =  in_weights * 2 - 1
@@ -661,7 +668,7 @@ class EchoStateNetwork(nn.Module):
         # Normalize inputs and outputs
         y = self.normalize(outputs=y, keep=True)
         
-        
+        orig_X = x.clone().detach()
         if not x is None:
             if x.std() != 0:
                 x = self.normalize(inputs=x, keep=True)
@@ -700,6 +707,8 @@ class EchoStateNetwork(nn.Module):
 
         # later add noise.
         self.inner_noise, self.outer_noise = False, False
+
+        self.losses = None
             
         #fast exact solution ie we don't want to run backpropogation (ie we aren't doing classification):
         if not self.backprop:
@@ -716,7 +725,7 @@ class EchoStateNetwork(nn.Module):
 
                 train_x = extended_states[burn_in:, :]
                 train_y = y[burn_in:]
-
+                bias = None
                 if not self.regularization:
                     print("no regularization")
                     pinv = torch.pinverse(train_x)
@@ -724,31 +733,72 @@ class EchoStateNetwork(nn.Module):
                                           train_y )
                 elif self.l2_prop == 1:
                     print("ridge regularizing")
-                    self.losses = None
+                    
                     ridge_x = torch.matmul(train_x.T, train_x) + \
                                        self.regularization * torch.eye(train_x.shape[1], device = self.device)
                     ridge_y = torch.matmul(train_x.T, train_y)
-                    #ridge_x_inv = torch.inverse(ridge_x)
-
+                    ridge_x_inv = torch.pinverse(ridge_x)
+                    weight = ridge_x_inv @ridge_y
+                    assert 1 ==0
                     #torch.solve solves AX = B. Here X is beta_hat, A is ridge_x, and B is ridge_y
-                    weight = torch.solve(ridge_y, ridge_x).solution
+                    #weight = torch.solve(ridge_y, ridge_x).solution
 
                 else:
                     #this needs more work, but it is in progress.
+                    elastic_net_x = orig_X[burn_in:, :]
+                    gram_matrix = torch.matmul(elastic_net_x.T, elastic_net_x) 
+
+                    regr = ElasticNet(random_state=0, 
+                                          alpha = self.regularization, 
+                                          l1_ratio = 1-self.l2_prop,
+                                          selection = "random",
+                                          max_iter = 3000,
+                                          tol = 1e-2,
+                                          fit_intercept = True,
+                                          precompute = gram_matrix.numpy()
+                                          )
+                    regr.fit(train_x.numpy(), train_y.numpy())
+
+                    
+
+                    weight = torch.tensor(regr.coef_, device = self.device)
+                    bias = torch.tensor(regr.coef_, device =self.device)
+                    """
+                    try:
+                    except:
+
+                        print("elastic net regression Failing, falling back to ridge")
+                        ridge_x = gram_matrix + \
+                                       self.regularization * torch.eye(train_x.shape[1], device = self.device)
+                        ridge_y = torch.matmul(train_x.T, train_y)
+                        ridge_x_inv = torch.pinverse(ridge_x)
+                        weight = ridge_x_inv @ridge_y
+                    """
+
+                    """
                     print("elastic net regularizing")
+                    ridge_x = torch.matmul(train_x.T, train_x) + \
+                                       self.regularization * torch.eye(train_x.shape[1], device = self.device)
+                    ridge_y = torch.matmul(train_x.T, train_y)
+                    ridge_x_inv = torch.pinverse(ridge_x)
+                    weight = ridge_x_inv @ridge_y
+
                     with torch.enable_grad():
                         my_elastic = ElasticNetRegularization(iterations = 4000, 
                                           l2_proportion = self.l2_prop, 
                                           regularization_parameter = self.regularization,
-                                          fail_tolerance = 30, val_prop = 0.5, learning_rate = self.reg_lr)
-                        weight, bias, losses = my_elastic.fit(train_x, train_y)
+                                          fail_tolerance = 30, val_prop = 0.9, learning_rate = self.reg_lr, ridge_weights = weight)
+                        layer, losses = my_elastic.fit(train_x, train_y)
+                        weight = layer.weight.detach()
+                        bias = layer.bias.detach()
                         self.losses = losses
-                    self.LinOut.bias  = nn.Parameter(bias.view(-1,1), requires_grad = False)
+                    """
 
                 #self.inverse_out_activation().T
                 
-
                 self.LinOut.weight = nn.Parameter(weight.view(-1,1), requires_grad = False)
+                if type(bias) != type(None):
+                    self.LinOut.bias = nn.Parameter(bias.view(-1,1), requires_grad = False)
                 
                 self.laststate = self.state[-1, :]
         else:
