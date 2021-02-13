@@ -75,117 +75,6 @@ colorz = {
    "underline" : '\033[4m'
 }
 
-class ElasticNetRegularization(nn.Module):
-    def __init__(self, iterations, l2_proportion, regularization_parameter, learning_rate = None,
-                       fail_tolerance = 10, val_prop = 0.2, ridge_weights = None):
-        
-        super().__init__()
-        
-        self.learning_rate = learning_rate
-        self.iterations = iterations
-        self.l2_prop= l2_proportion
-        self.reg_param = regularization_parameter
-        self.val_prop = val_prop
-        self.fail_tolerance = fail_tolerance
-        self.ridge_weights  = ridge_weights
-    
-    def normalize(self, inputs = None, outputs = None, keep = False):
-        
-        if type(inputs) != type(None):
-            if keep:
-                self.input_means  = inputs.mean(axis = 0)
-                self.input_stds  = inputs.std(axis = 0)
-            normalized_tensor = (inputs - self.input_means)/self.input_stds
-        if type(outputs) != type(None):
-            if keep:
-                self.output_means = outputs.mean(axis = 0)
-                self.output_stds  = outputs.std(axis = 0)
-            normalized_tensor = (outputs - self.output_means)/self.output_stds
-        
-        return normalized_tensor
-    
-    def denormalize(self, inputs = None, outputs = None):
-        if type(inputs) != type(None):
-            denormalized_tensor = (inputs +self.input_means)*self.input_stds
-        if type(outputs) != type(None):
-            denormalized_tensor = (outputs + self.output_means)*self.output_stds
-        return denormalized_tensor
-    
-    def elastic_net_loss(self, output, target):
-        l1_loss_component = (1 - self.l2_prop) * torch.sum(torch.abs(self.linear.weight))
-        if type(self.ridge_weights) == type(None):
-            l2_loss_component = self.l2_prop * torch.sum(torch.square(self.linear.weight))
-        else:
-            l2_loss_component = self.l2_prop * torch.sum(torch.square(self.linear.weight - self.ridge_weights))
-        loss = torch.sum(torch.square(output - target)) +  self.reg_param * (l1_loss_component + l2_loss_component)
-        return loss
-    
-    def fit(self, X, y):
-        self.n_features = X.shape[1]
-        self.n_samples = X.shape[0]
-        
-        with torch.enable_grad():
-            X = self.normalize(inputs = X, keep = True)
-            y = self.normalize(outputs = y, keep = True)
-
-        if not X.requires_grad:
-            X.requires_grad = True
-        if not y.requires_grad:
-            y.requires_grad = True
-
-        if not X.requires_grad:
-            assert 1 == 0
-        if not y.requires_grad:
-            assert 1 == 0
-        
-        self.linear = torch.nn.Linear(self.n_features, 1)
-        
-        #gradient descent learning
-        if self.learning_rate:
-            optimizer = optim.Adam(self.parameters(), lr = self.learning_rate)
-        else:
-            
-            optimizer = optim.Adam(self.parameters())
-        loss = 0
-        
-        self.losses = []
-        self.fails = []
-        for e in range(self.iterations):
-            val_idx= torch.randperm(int(self.n_samples*(self.val_prop)))
-            train_X = X[~val_idx,:]
-            train_X = self.normalize(inputs = train_X, keep = False)
-            
-            prediction = self.forward(train_X)
-            if not prediction.requires_grad:
-                prediction.requires_grad = True
-            loss = self.elastic_net_loss(prediction, y[~val_idx,:])
-            if not e:   
-                loss.backward(retain_graph=True)
-            else:
-                loss.backward()
-            self.losses.append(loss.detach())
-            if e >= 1:
-                self.fails.append(self.losses[-2] < self.losses[-1])
-            if e > (self.fail_tolerance + 20):
-                n_fails =  sum(self.fails[-self.fail_tolerance:]) 
-                if n_fails == self.fail_tolerance:
-                    print(n_fails)
-                    break
-            optimizer.step()
-
-                
-        return self.linear, self.losses
-    
-    def forward(self, X):
-        return self.linear(X)
-    
-    def predict(self, X):
-        X = self.normalize(inputs = X, keep = False)
-
-        with torch.no_grad():
-            pred = self.forward(X)
-        
-        return self.denormalize(outputs = pred).detach()
 
 
 class EchoStateNetwork(nn.Module):
@@ -249,7 +138,12 @@ class EchoStateNetwork(nn.Module):
             
         with torch.no_grad():
             self.gen_reservoir()
-    
+        
+        scaler = "standardize"
+        if scaler == "standardize":
+            self.scale   = self.normalize
+            self.descale = self.denormalize
+
     def plot_reservoir(self):
         sns.histplot(self.weights.numpy().view(-1,))
         
@@ -529,12 +423,12 @@ class EchoStateNetwork(nn.Module):
         rows = y.shape[0] - start_index
         
         # Normalize inputs and outputs
-        y = self.normalize(outputs=y, keep=True)
+        y = self.scale(outputs=y, keep=True)
         
         
         if not x is None:
             if not self.already_normalized:
-                x = self.normalize(inputs=x, keep=True)
+                x = self.scale(inputs=x, keep=True)
             self.n_inputs = (x.shape[1])
 
         self.lastoutput = y[-1, :]
@@ -666,15 +560,20 @@ class EchoStateNetwork(nn.Module):
         rows = y.shape[0] - start_index
         
         # Normalize inputs and outputs
-        y = self.normalize(outputs=y, keep=True)
+        y = self.scale(outputs=y, keep=True)
         
         orig_X = x.clone().detach()
         if not x is None:
+
             if x.std() != 0:
-                x = self.normalize(inputs=x, keep=True)
+
+                x = self.scale(inputs=x, keep=True)
             else:
-                assert "invalid input, zero std"
+                self._input_stds = None
+                self._input_means = None
+                
             self.n_inputs = (x.shape[1])
+        
 
         self.lastoutput = y[-1, :]
         self.lastinput = x[-1, :]
@@ -739,7 +638,6 @@ class EchoStateNetwork(nn.Module):
                     ridge_y = torch.matmul(train_x.T, train_y)
                     ridge_x_inv = torch.pinverse(ridge_x)
                     weight = ridge_x_inv @ridge_y
-                    assert 1 ==0
                     #torch.solve solves AX = B. Here X is beta_hat, A is ridge_x, and B is ridge_y
                     #weight = torch.solve(ridge_y, ridge_x).solution
 
@@ -763,17 +661,6 @@ class EchoStateNetwork(nn.Module):
 
                     weight = torch.tensor(regr.coef_, device = self.device)
                     bias = torch.tensor(regr.coef_, device =self.device)
-                    """
-                    try:
-                    except:
-
-                        print("elastic net regression Failing, falling back to ridge")
-                        ridge_x = gram_matrix + \
-                                       self.regularization * torch.eye(train_x.shape[1], device = self.device)
-                        ridge_y = torch.matmul(train_x.T, train_y)
-                        ridge_x_inv = torch.pinverse(ridge_x)
-                        weight = ridge_x_inv @ridge_y
-                    """
 
                     """
                     print("elastic net regularizing")
@@ -790,7 +677,7 @@ class EchoStateNetwork(nn.Module):
                                           fail_tolerance = 30, val_prop = 0.9, learning_rate = self.reg_lr, ridge_weights = weight)
                         layer, losses = my_elastic.fit(train_x, train_y)
                         weight = layer.weight.detach()
-                        bias = layer.bias.detach()
+                        bias = layer.bias.detach()d
                         self.losses = losses
                     """
 
@@ -889,6 +776,9 @@ class EchoStateNetwork(nn.Module):
                 # Store for denormalization
                 self._input_means = inputs.mean(axis=0)
                 self._input_stds = inputs.std(dim = 0) #, ddof = 1)
+
+                print("input stds", self._input_stds)
+                assert 1 == 0
 
             # Transform
             transformed.append((inputs - self._input_means) / self._input_stds)
@@ -1014,7 +904,7 @@ class EchoStateNetwork(nn.Module):
         # Normalize the inputs (like was done in train)
         if not self.already_normalized:
             if not x is None:
-                x = self.normalize(inputs=x)
+                x = self.scale(inputs=x)
 
         #initialize input:
         inputs = Variable(torch.zeros((n_steps, 1)), requires_grad = False).to(device) #torch.ones((n_steps, 1), dtype=np.float32)  # Add bias term
@@ -1038,7 +928,7 @@ class EchoStateNetwork(nn.Module):
         
         #if not self.already_normalized:
         if not y_start is None: #if not x is None:
-            previous_y = self.normalize(outputs=y_start)[0]
+            previous_y = self.scale(outputs=y_start)[0]
 
         # Initialize state from last availble in train
         current_state = self.state[-1]
@@ -1095,8 +985,8 @@ class EchoStateNetwork(nn.Module):
             raise ValueError('Error: ESN not trained yet')
         
         # Normalize the inputs (like was done in train)
-        if not x is None:
-            x = self.normalize(inputs=x)
+        if not x is None and self._input_means:
+            x = self.scale(inputs=x)
         
         # Set parameters
         if self.LinOut.weight.shape[0] == 1:
@@ -1108,7 +998,7 @@ class EchoStateNetwork(nn.Module):
         n_samples = x.shape[0]
 
         if not y_start is None: #if not x is None:
-            previous_y = self.normalize(outputs=y_start)[0]
+            previous_y = self.scale(outputs=y_start)[0]
 
         if continuation:
             laststate = self.laststate
@@ -1141,7 +1031,10 @@ class EchoStateNetwork(nn.Module):
         #outputs = self.out_weights.T@outputs)#complete_data.T)#outputs=outputs[1:])
         #y_predicted.view(-1, self.n_outputs)
         #print("outputs", y_predicted.shape)
-        return self.denormalize(outputs = outputs[1:]).view(-1, self.n_outputs) # 
+        try:
+            return self.denormalize(outputs = outputs[1:]).view(-1, self.n_outputs) # 
+        except:
+            return outputs[1:]
 
 
 
@@ -1169,10 +1062,10 @@ class EchoStateNetwork(nn.Module):
             raise ValueError('Error: ESN not trained yet')
 
         # Normalize the arguments (like was done in train)
-        y = self.normalize(outputs=y)
+        y = self.scale(outputs=y)
         if not x is None:
             if not self.already_normalized:
-                x = self.normalize(inputs=x)
+                x = self.scale(inputs=x)
 
         # Timesteps in y
         t_steps = y.shape[0]
@@ -1203,7 +1096,7 @@ class EchoStateNetwork(nn.Module):
         # Get last states
         previous_y = self.y_last
         if not y_start is None:
-            previous_y = self.normalize(outputs=y_start)[0]#.to(device)
+            previous_y = self.scale(outputs=y_start)[0]#.to(device)
 
         # Initialize state from last availble in train
         current_state = self.state[-1]
@@ -1393,3 +1286,177 @@ class EchoStateNetwork(nn.Module):
 
         # Syntactic sugar
         return tuple(transformed) if len(transformed) > 1 else transformed[0]
+
+    def destandardize(self, inputs=None, outputs=None):
+        """Denormalizes array by column (along rows) using stored mean and standard deviation.
+
+        Parameters
+        ----------
+        inputs : array or None
+            Any inputs that need to be transformed back to their original scales
+        outputs : array or None
+            Any output that need to be transformed back to their original scales
+
+        Returns
+        -------
+        transformed : tuple or array
+            Returns tuple of every denormalized array. In case only one object is to be returned the tuple will be
+            unpacked before returning
+
+        """
+        if inputs is None and outputs is None:
+            raise ValueError('Inputs and outputs cannot both be None')
+
+        # Storage for transformed variables
+        transformed = []
+        
+        #for tensor in [train_x, train_y]:
+        #     print('device',tensor.get_device())
+        
+        if not inputs is None and not self.already_normalized:
+            transformed.append((inputs * self._input_stds) + self._input_means)
+
+        if not outputs is None:
+            transformed.append((outputs * self._output_stds) + self._output_means)
+
+        # Syntactic sugar
+        return tuple(transformed) if len(transformed) > 1 else transformed[0]
+
+class ElasticNetRegularization(nn.Module):
+    def __init__(self, iterations, l2_proportion, regularization_parameter, learning_rate = None,
+                       fail_tolerance = 10, val_prop = 0.2, ridge_weights = None, scaler = "normalize"):
+        
+        super().__init__()
+        
+        self.learning_rate = learning_rate
+        self.iterations = iterations
+        self.l2_prop= l2_proportion
+        self.reg_param = regularization_parameter
+        self.val_prop = val_prop
+        self.fail_tolerance = fail_tolerance
+        self.ridge_weights  = ridge_weights
+
+        assert scaler in ["normalize", "standardize"]
+        if scaler == "standardize":
+            self.scale   = self.standardize
+            self.descale = self.destandarize
+        #else:
+        #    self.scale = self.standardize
+        #    self.descale = self.destandardize
+    #TODO: combine standardize and normalize into a class.
+    
+    def standardize(self, inputs = None, outputs = None, keep = False):
+
+        if type(inputs) != type(None):
+            if keep:
+                self.input_stds  = inputs.std(axis = 0)
+                self.input_means  = inputs.mean(axis = 0)
+                assert 1 == 0
+
+            std_tensor = (inputs - self.input_means)/self.input_stds
+        if type(outputs) != type(None):
+            if keep:
+                self.output_means = outputs.mean(axis = 0)
+                self.output_stds  = outputs.std(axis = 0)
+            std_tensor = (outputs - self.output_means)/self.output_stds
+        
+        return normalized_tensor
+
+    def normalize(self, inputs = None, outputs = None, keep = False):
+
+        if type(inputs) != type(None):
+            if keep:
+                self.input_min  = inputs.min(axis = 0)
+                self.input_max  = inputs.max(axis = 0)
+            normalized_tensor = (inputs - self.input_min)/(self.input_max - self.input_min)
+        if type(outputs) != type(None):
+            if keep:
+                self.output_min = outputs.min(axis = 0)
+                self.output_max = outputs.max(axis = 0)
+            normalized_tensor = (outputs - self.output_min)/(self.input_max - self.input_min)
+        
+        return std_tensor
+    
+    def denormalize(self, inputs = None, outputs = None):
+        assert 1 ==0, "not properly implimented"
+        if type(inputs) != type(None):
+            denormalized_tensor = (inputs +self.input_means)*self.input_stds
+        if type(outputs) != type(None):
+            denormalized_tensor = (outputs + self.output_means)*self.output_stds
+        return denormalized_tensor
+    
+    def elastic_net_loss(self, output, target):
+        l1_loss_component = (1 - self.l2_prop) * torch.sum(torch.abs(self.linear.weight))
+        if type(self.ridge_weights) == type(None):
+            l2_loss_component = self.l2_prop * torch.sum(torch.square(self.linear.weight))
+        else:
+            l2_loss_component = self.l2_prop * torch.sum(torch.square(self.linear.weight - self.ridge_weights))
+        loss = torch.sum(torch.square(output - target)) +  self.reg_param * (l1_loss_component + l2_loss_component)
+        return loss
+    
+    def fit(self, X, y):
+        self.n_features = X.shape[1]
+        self.n_samples = X.shape[0]
+        
+        with torch.enable_grad():
+            X = self.scale(inputs = X, keep = True)
+            y = self.scale(outputs = y, keep = True)
+
+        if not X.requires_grad:
+            X.requires_grad = True
+        if not y.requires_grad:
+            y.requires_grad = True
+
+        if not X.requires_grad:
+            assert 1 == 0
+        if not y.requires_grad:
+            assert 1 == 0
+        
+        self.linear = torch.nn.Linear(self.n_features, 1)
+        
+        #gradient descent learning
+        if self.learning_rate:
+            optimizer = optim.Adam(self.parameters(), lr = self.learning_rate)
+        else:
+            
+            optimizer = optim.Adam(self.parameters())
+        loss = 0
+        
+        self.losses = []
+        self.fails = []
+        for e in range(self.iterations):
+            val_idx= torch.randperm(int(self.n_samples*(self.val_prop)))
+            train_X = X[~val_idx,:]
+            train_X = self.scale(inputs = train_X, keep = False)
+            
+            prediction = self.forward(train_X)
+            if not prediction.requires_grad:
+                prediction.requires_grad = True
+            loss = self.elastic_net_loss(prediction, y[~val_idx,:])
+            if not e:   
+                loss.backward(retain_graph=True)
+            else:
+                loss.backward()
+            self.losses.append(loss.detach())
+            if e >= 1:
+                self.fails.append(self.losses[-2] < self.losses[-1])
+            if e > (self.fail_tolerance + 20):
+                n_fails =  sum(self.fails[-self.fail_tolerance:]) 
+                if n_fails == self.fail_tolerance:
+                    print(n_fails)
+                    break
+            optimizer.step()
+
+                
+        return self.linear, self.losses
+    
+    def forward(self, X):
+        return self.linear(X)
+    
+    def predict(self, X):
+        X = self.scale(inputs = X, keep = False)
+
+        with torch.no_grad():
+            pred = self.forward(X)
+        
+        return self.denormalize(outputs = pred).detach()
