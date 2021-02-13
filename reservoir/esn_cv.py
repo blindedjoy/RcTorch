@@ -186,6 +186,7 @@ class GlobalSparseLibrary:
         """
         if self.flip_the_script:
             index = np.random.randint(len(self.book_indices))
+        print("index", index, "book indices", self.book_indices, "self.library", self.library)
         book = self.library[self.book_indices[index]]
         if index != 0:
             printc("retrieving book from library" + str(self.book_indices[index]), 'green')
@@ -265,32 +266,32 @@ class ReservoirBuildingBlocks:
     def gen_in_weights(self):
 
         n, m = self.n_nodes_, self.n_inputs_
+        in_w_shape_ = (n, m)
 
         #at the moment all input weight matrices use uniform bias.
-        self.uniform_bias = torch.rand(n, 1, **self.tensorArgs)* 2 - 1
+        self.uniform_bias = random_state.uniform(-1, 1, size = (n, 1))
 
         #weights
         if self.input_weight_type_ == "uniform":
-            
-            self.in_weights_uniform = torch.rand(n, m, **self.tensorArgs) * 2 - 1
-            
-            #add bias
-            self.in_weights = torch.hstack((self.uniform_bias, self.in_weights_uniform)) #.to(device)
-            print(self.in_weights.shape, "in weights")
+            self.in_weights = torch.rand( n, m, generator = self.random_state, device = self.device)
+            self.in_weights = self.in_weights * 2 - 1
+
+            self.bias = torch.rand( n, 1, generator = self.random_state, device = self.device) * 2 - 1
 
         elif self.input_weight_type_ == "exponential":
-            
-            #printc("BUILDING SIGN_", 'fail')
+            printc("BUILDING SIGN_", 'fail')
             sign1 = random_state.choice([-1, 1], size= (in_w_shape_[0], in_w_shape_[1]//2))
             sign2 = random_state.choice([-1, 1], size= (in_w_shape_[0], in_w_shape_[1]//2))
 
             self.sign_dual = (sign1, sign2)
             self.sign = np.concatenate((sign1, sign2), axis = 1)
-            
+
+        #regularization
+        self.noise_z = torch.normal(0, self.noise,  size = (n, m), **self.tensorArgs)
         self.feedback_weights = torch.rand(n, 1, **self.tensorArgs) * 2 - 1
 
         #regularization
-        self.noise_z = torch.normal(0, 1, size = (n, m + 1), **self.tensorArgs)
+        self.noise_z = torch.normal(0, 1, size = (n, m), **self.tensorArgs)
 
 
 __all__ = ['EchoStateNetworkCV']

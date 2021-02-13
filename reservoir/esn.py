@@ -195,6 +195,8 @@ class EchoStateNetwork(nn.Module):
             else:
                 #print("LOADING MATRIX", load_failed)
                 if self.approximate_reservoir:
+
+                    self.weights = self.reservoir.get_approx_preRes(self.connectivity, i).to(device)
                 
                     try:   
                         self.weights = self.reservoir.get_approx_preRes(self.connectivity, i).to(device)
@@ -235,57 +237,8 @@ class EchoStateNetwork(nn.Module):
         # Set output weights to none to indicate untrained ESN
         self.out_weights = None
              
+
     def set_Win(self): #inputs
-        """
-        Build the input weights.
-        Currently only uniform implimented.
-
-        Arguments:
-            inputs:
-        """
-        with torch.no_grad():
-            
-            if not self.reservoir or 'in_weights' not in dir(self.reservoir): 
-                #print("GENERATING IN WEIGHTS")
-
-                in_weights = torch.rand(self.n_nodes, self.n_inputs, generator = self.random_state, device = self.device)
-                in_weights =  in_weights * 2 - 1
-                
-                if self.bias == "uniform":
-                    #random uniform distributed bias
-                    bias = torch.rand(self.n_nodes, 1, generator = self.random_state, device = self.device)
-                    bias = bias * 2 - 1
-                else:
-                    bias = torch.ones(self.n_nodes, 1, device = self.device) * self.bias
-
-                #if there is white noise add it in (this will be much more useful later with the exponential model)
-                if self.noise:
-                    white_noise = torch.normal(0, self.noise, device = self.device, size = (self.n_nodes, n_inputs))
-                    in_weights += white_noise
-
-                in_weights = torch.hstack((bias, in_weights)) * self.input_scaling
-                
-                if self.feedback:
-                    feedback_weights = torch.rand(self.n_nodes, 1, device = self.device, generator = self.random_state) * 2 - 1
-                    feedback_weights = self.feedback_scaling * feedback_weights
-                    in_weights = torch.hstack((in_weights, feedback_weights)).view(self.n_nodes, -1)
-                
-            else:
-                #print("self.reservoir.in_weights", self.reservoir.in_weights.get_device())
-                #print("self.reservoir.noise_z", self.reservoir.noise_z.get_device())
-                #print("feedback", self.reservoir.feedback_weights.get_device())
-                in_weights = self.reservoir.in_weights + self.noise * self.reservoir.noise_z
-                
-                if self.feedback:
-                    feedback_weights = self.feedback_scaling * self.reservoir.feedback_weights
-                    in_weights = torch.hstack((in_weights, feedback_weights)).view(self.n_nodes, -1)
-   
-        in_weights = nn.Parameter(in_weights, requires_grad = False).to(self.device)
-        in_weights._name_ = "in_weights"
-
-        return(in_weights)
-
-    def set_Win2(self): #inputs
         """
         Build the input weights.
         Currently only uniform implimented.
@@ -315,10 +268,6 @@ class EchoStateNetwork(nn.Module):
                     #in_weights += white_noise
 
                 in_weights = bias * self.input_scaling #torch.hstack((bias, in_weights)) * self.input_scaling
-
-                """
-                
-                """
                 
             else:
                 
@@ -401,8 +350,8 @@ class EchoStateNetwork(nn.Module):
 
         self.LinIn = nn.Linear(self.n_nodes, 1, bias = False).to(device)
         self.LinFeedback = nn.Linear(self.n_nodes, 1, bias = False).to(device)
-        self.LinIn.weight, self.LinFeedback.weight = self.set_Win2()
-        self.LinOut = nn.Linear(self.n_nodes +1, y.shape[1], bias = False).to(device)
+        self.LinIn.weight, self.LinFeedback.weight = self.set_Win()
+        self.LinOut = nn.Linear(self.n_nodes + 1, y.shape[1], bias = False).to(device)
         if not self.classification:
             self.out_activation = self.LinOut
         
