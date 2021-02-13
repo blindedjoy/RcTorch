@@ -651,7 +651,7 @@ class EchoStateNetworkCV:
                 #random_seed = self.random_seed) Distance_matrix = self.Distance_matrix)
 
         # Train
-        esn.train2(x=train_x, y=train_y, burn_in=self.esn_burn_in)
+        esn.train(x=train_x, y=train_y, burn_in=self.esn_burn_in)
 
         # Validation score
         score = esn.test2(x=validate_x, y=validate_y, scoring_method=self.scoring_method, 
@@ -893,11 +893,11 @@ class EchoStateNetworkCV:
 
             train_x, train_y, validate_x, validate_y = self.objective_sampler()
             
-            RC.train2(x = train_x, y = train_y,  burn_in=self.esn_burn_in, learning_rate = self.learning_rate)
+            RC.train(X = train_x, y = train_y,  burn_in=self.esn_burn_in, learning_rate = self.learning_rate)
 
             print(RC.l2_prop)
             # Validation score
-            score, pred_ = RC.test2(x=validate_x, y=validate_y, scoring_method='mse', steps_ahead = self.steps_ahead)
+            score, pred_ = RC.test(x=validate_x, y=validate_y, scoring_method='mse', steps_ahead = self.steps_ahead)
             
             if self.count % self.batch_size == 0:
                 self.train_plot_update(pred_ = pred_, validate_y = validate_y, 

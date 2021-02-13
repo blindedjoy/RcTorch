@@ -146,46 +146,8 @@ class EchoStateNetwork(nn.Module):
 
     def plot_reservoir(self):
         sns.histplot(self.weights.numpy().view(-1,))
-        
-    def forward(self, t, input_, current_state):
-        """
-        Arguments:
-            t:
-            input_:
-            current_state:
-        """
-        #uses of torch.no_grad() are indiscriminant and potentially ineffective. improve this
-        with torch.no_grad():
-            in_vec = torch.matmul(self.in_weights, input_)
 
-        weight_vec = torch.matmul(self.weights, current_state)
-
-        update = self.activation_function(in_vec + weight_vec) 
-
-        current_hidden_state = self.leaking_rate * update + (1 - self.leaking_rate) * current_state  # Leaking separate
-        current_hidden_state = current_hidden_state.view(1,-1)
-        
-        with torch.no_grad():
-            self.state[t, :] = current_hidden_state.detach().squeeze()
-            
-        if self.classification:
-            output = self.ClassOut(current_hidden_state)
-        else:
-            if self.backprop:
-                if self.feedback:
-                    
-                    vec = torch.cat([input_[1].view(-1,1), current_hidden_state], 1)
-
-                    output = self.LinOut(vec)
-                else:    
-                    output = self.LinOut(current_hidden_state.view(-1,1))
-            else:
-                output = None
-                #output = self.out_weights @ current_hidden_state
-        
-        return current_hidden_state, output #, hidden_dot, output_dot
-
-    def forward2(self, t, input_, current_state, output_pattern, verbose = False):
+    def forward(self, t, input_, current_state, output_pattern, verbose = False):
         """
         Arguments:
             t: the current timestep
@@ -395,8 +357,9 @@ class EchoStateNetwork(nn.Module):
     def plot_states(self, n= 10):
         for i in range(n):
             plt.plot(list(range(len(self.state[:,i]))), RC.state[:,i], alpha = 0.8)
-        
-    def train(self, y, x=None, burn_in=0, input_weight=None, verbose = False ,learning_rate = None):
+
+
+    def train(self, y, X=None, burn_in=0, input_weight=None, verbose = False , learning_rate = None):
         """
         Train the network.
         
@@ -405,155 +368,8 @@ class EchoStateNetwork(nn.Module):
             x: observer matrix
             burn in: obvious
             input_weight : ???
-            
-        """
-        #h  = Variable(torch.zeros([Nt,self.reservoir_size]), requires_grad = False)
-        #zd = Variable(torch.zeros(Nt), requires_grad = False)
-        #z  = Variable(torch.zeros(Nt), requires_grad = False)
-        
-        #TODO : torch random state
-        
-        
-        #with torch.no_grad():
-        #if x:
-        #    x = x.to(device)
-        #y = y.to(device)
-        
-        start_index = 1 if self.feedback else 0 
-        rows = y.shape[0] - start_index
-        
-        # Normalize inputs and outputs
-        y = self.scale(outputs=y, keep=True)
-        
-        
-        if not x is None:
-            if not self.already_normalized:
-                x = self.scale(inputs=x, keep=True)
-            self.n_inputs = (x.shape[1])
-
-        self.lastoutput = y[-1, :]
-        self.lastinput = x[-1, :]
-    
-        if x is None and not self.feedback:
-            #raise ValueError("Error: provide x or enable feedback")
-            self.already_normalized = True
-            inputs = torch.ones((y.shape[0], y.shape[1] + 1), device = self.device)
-            self.n_inputs  = y.shape[1]
-        
-        if x is None and self.feedback:
-            self.n_inputs  = y.shape[1] - 1
-        
-        #build the state matrix:
-        self.state = torch.zeros((rows, self.n_nodes), device = self.device)
-        self.state._name_ = "state"
-
-        #self.state = self.state.detach()
-        current_state = self.state[-1] 
-        
-        #concatenate a column of ones to the input x for bias.
-        inputs = torch.ones(rows, 1, device = self.device)
-        inputs.requires_grad=False
-        
-        #initialize the in_weights and bias tensors
-        if not x is None:
-            inputs = torch.hstack((inputs, x[start_index:]))
-        elif self.feedback:
-            inputs = torch.hstack((inputs, y[:-1])) 
-        #else:
-        #    inputs = torch.rand(inputs.shape[0], 2, generator = self.random_state, device = self.device) * 2 -1#torch.hstack((inputs, inputs)) 
-
-        self.in_weights = self.set_Win()#inputs)
-        inputs._name_ = "inputs"
-
-        self.burn_in = burn_in
-            
-        #fast exact solution ie we don't want to run backpropogation (ie we aren't doing classification):
-        if not self.backprop:
-            with torch.no_grad():
-
-                for t in range(inputs.shape[0]):
-                    hidden, output = self.forward(t, inputs[t].T, current_state)
-
-                complete_data = torch.hstack((inputs, self.state))
-                complete_data._name_ = "complete_data"
-
-                train_x = complete_data[burn_in:]  # Include everything after burn_in
-                train_y = y[burn_in + 1:] if self.feedback else y[burn_in:]
-
-                # Ridge regression
-                ridge_x = torch.matmul(train_x.T, train_x) + \
-                            self.regularization * torch.eye(train_x.shape[1], device = self.device)
-                ridge_y = torch.matmul(train_x.T, train_y)
-
-                # Solver solution (fast)
-                out_weights_sol = torch.solve(ridge_y, ridge_x)
-                self.out_weights = out_weights_sol.solution
-                self.out_weights._name_ = "out_weights"
-        else:
-            # backprop:
-            print(5)
-            running_loss = 0
-            train_losses = []
-            optimizer = optim.Adam(self.parameters(), lr=learning_rate)
-            for e in range(self.epochs):
-                optimizer.zero_grad()
-                loss = 0
-                #unnin
-                for t in range(inputs.shape[0]):
-
-                    input_ = inputs[t].T
-                    _, output = self.forward(t, input_, current_state)
-                    
-                    loss += self.criterion(output.view(-1,), y[t])
-                    if t % 500 == 0:
-                        print("timestep ", t)
-                if not e:   
-                    loss.backward(retain_graph=True)
-                else:
-                    loss.backward()
-                optimizer.step()
-
-                ################################################## Classification, from Marios's prototype
-                #running_loss += loss.item()
-                #if self.classification:
-                #    output = F.log_softmax(output, dim=1)
-                #   #z_targ = y#.view(-1,) #z_targ = z_targ.long()
-                #    running_loss += self.criterion(output, y) 
-                #else:
-                #    print(self.criterion)
-                #    running_loss += self.criterion(output, y)
-                #loss_history.append(loss.data.numpy())
-                ##################################################
-
-                #print('Linout weights', self.LinOut.weight.shape)
-                #print('Linout bias', self.LinOut.bias.shape)
-                
-
-                print("Epoch: {}/{}.. ".format(e+1, self.epochs),
-                      "Training Loss: {:.3f}.. ".format(loss))#/len(trainloader)),
-                      #"Test Loss: {:.3f}.. ".format(test_loss/len(testloader)),
-                      #"Test Accuracy: {:.3f}".format(accuracy/len(testloader)))
-            
-            self.out_weights = self.LinOut.weight
-            self.out_weights._name_ = "out_weights"
-            complete_data = torch.hstack((inputs, self.state))
-        
-        # Store last y value as starting value for predictions
-        self.y_last = y[-1, :]
-
-        # Return all data for computation or visualization purposes (Note: these are normalized)
-        return complete_data, (y[1:,:] if self.feedback else y), burn_in
-
-    def train2(self, y, x=None, burn_in=0, input_weight=None, verbose = False ,learning_rate = None):
-        """
-        Train the network.
-        
-        Arguments:
-            y: response matrix
-            x: observer matrix
-            burn in: obvious
-            input_weight : ???
-            
+            learning_rate: 
+            verbose:
         """
 
         start_index = 1 if self.feedback else 0 
@@ -562,28 +378,26 @@ class EchoStateNetwork(nn.Module):
         # Normalize inputs and outputs
         y = self.scale(outputs=y, keep=True)
         
-        orig_X = x.clone().detach()
-        if not x is None:
+        orig_X = X.clone().detach()
+        if not X is None:
 
-            if x.std() != 0:
+            if X.std() != 0:
 
-                x = self.scale(inputs=x, keep=True)
+                X = self.scale(inputs=X, keep=True)
             else:
                 self._input_stds = None
                 self._input_means = None
                 
-            self.n_inputs = (x.shape[1])
+            self.n_inputs = (X.shape[1])
         
 
         self.lastoutput = y[-1, :]
-        self.lastinput = x[-1, :]
+        self.lastinput = X[-1, :]
 
-        self.n_inputs = 1#x.shape[1]
         self.n_outputs  = y.shape[1]
         
         start_index = 1 if self.feedback else 0 
         rows = y.shape[0] - start_index
-        
 
         self.LinIn = nn.Linear(self.n_nodes, 1, bias = False).to(device)
         self.LinFeedback = nn.Linear(self.n_nodes, 1, bias = False).to(device)
@@ -593,7 +407,7 @@ class EchoStateNetwork(nn.Module):
             self.out_activation = self.LinOut
         
         #build the state matrix:
-        self.state = torch.zeros((x.shape[0], self.n_nodes), device = self.device).detach()
+        self.state = torch.zeros((X.shape[0], self.n_nodes), device = self.device).detach()
         self.state._name_ = "state"
 
         current_state = self.state[-1] 
@@ -614,12 +428,12 @@ class EchoStateNetwork(nn.Module):
             with torch.no_grad():
 
                 #run through the states.
-                for t in range(1, x.shape[0]):
-                    self.state[t, :] = self.forward2(t, input_ = x[t].T, 
+                for t in range(1, X.shape[0]):
+                    self.state[t, :] = self.forward(t, input_ = X[t].T, 
                                                         current_state = self.state[t-1,:], 
                                                         output_pattern = y[t-1]).squeeze()
 
-                extended_states = torch.hstack((self.state, x))
+                extended_states = torch.hstack((self.state, X))
                 extended_states._name_ = "complete_data"
 
                 train_x = extended_states[burn_in:, :]
@@ -657,31 +471,8 @@ class EchoStateNetwork(nn.Module):
                                           )
                     regr.fit(train_x.numpy(), train_y.numpy())
 
-                    
-
                     weight = torch.tensor(regr.coef_, device = self.device)
                     bias = torch.tensor(regr.coef_, device =self.device)
-
-                    """
-                    print("elastic net regularizing")
-                    ridge_x = torch.matmul(train_x.T, train_x) + \
-                                       self.regularization * torch.eye(train_x.shape[1], device = self.device)
-                    ridge_y = torch.matmul(train_x.T, train_y)
-                    ridge_x_inv = torch.pinverse(ridge_x)
-                    weight = ridge_x_inv @ridge_y
-
-                    with torch.enable_grad():
-                        my_elastic = ElasticNetRegularization(iterations = 4000, 
-                                          l2_proportion = self.l2_prop, 
-                                          regularization_parameter = self.regularization,
-                                          fail_tolerance = 30, val_prop = 0.9, learning_rate = self.reg_lr, ridge_weights = weight)
-                        layer, losses = my_elastic.fit(train_x, train_y)
-                        weight = layer.weight.detach()
-                        bias = layer.bias.detach()d
-                        self.losses = losses
-                    """
-
-                #self.inverse_out_activation().T
                 
                 self.LinOut.weight = nn.Parameter(weight.view(-1,1), requires_grad = False)
                 if type(bias) != type(None):
@@ -800,7 +591,7 @@ class EchoStateNetwork(nn.Module):
             self._output_stds = self._output_stds.to(device)
         # Syntactic sugar
         return tuple(transformed) if len(transformed) > 1 else transformed[0]
-    
+
     def test(self, y, x=None, y_start=None, steps_ahead=None, scoring_method='nmse', alpha=1.):
         """Tests and scores against known output.
 
@@ -839,128 +630,8 @@ class EchoStateNetwork(nn.Module):
         # Return error
         return self.error(y_predicted, y, scoring_method, alpha=alpha), y_predicted
 
-    def test2(self, y, x=None, y_start=None, steps_ahead=None, scoring_method='nmse', alpha=1.):
-        """Tests and scores against known output.
 
-        Parameters
-        ----------
-        y : array
-            Column vector of known outputs
-        x : array or None
-            Any inputs if required
-        y_start : float or None
-            Starting value from which to start testing. If None, last stored value from trainging will be used
-        steps_ahead : int or None
-            Computes average error on n steps ahead prediction. If `None` all steps in y will be used.
-        scoring_method : {'mse', 'rmse', 'nrmse', 'tanh'}
-            Evaluation metric used to calculate error
-        alpha : float
-            Alpha coefficient to scale the tanh error transformation: alpha * tanh{(1 / alpha) * error}
-
-        Returns
-        -------
-        error : float
-            Error between prediction and knwon outputs
-
-        """
-        self.steps_ahead = steps_ahead
-        y = y.to(device)
-        
-        # Run prediction
-        final_t =y.shape[0]
-        if steps_ahead is None:
-            y_predicted = self.predict2(n_steps = y.shape[0], x=x, y_start=y_start)
-            #printc("predicting "  + str(y.shape[0]) + "steps", 'blue')
-        else:
-            y_predicted = self.predict_stepwise(y, x, steps_ahead=steps_ahead, y_start=y_start)[:final_t,:]
-        
-        # Return error
-        return self.error(y_predicted, y, scoring_method, alpha=alpha), y_predicted
-    
-    def predict(self, n_steps, pure_prediction = True, x=None, y_start=None):
-        """Predicts n values in advance.
-
-        Prediction starts from the last state generated in training.
-
-        Parameters
-        ----------
-        n_steps : int
-            The number of steps to predict into the future (internally done in one step increments)
-        x : numpy array or None
-            If prediciton requires inputs, provide them here
-        y_start : float or None
-            Starting value from which to start prediction. If None, last stored value from training will be used
-
-        Returns
-        -------
-        y_predicted : numpy array
-            Array of n_step predictions
-
-        """
-        # Check if ESN has been trained
-        if  self.y_last is None: #self.out_weights is None or
-            raise ValueError('Error: ESN not trained yet')
-        
-        # Normalize the inputs (like was done in train)
-        if not self.already_normalized:
-            if not x is None:
-                x = self.scale(inputs=x)
-
-        #initialize input:
-        inputs = Variable(torch.zeros((n_steps, 1)), requires_grad = False).to(device) #torch.ones((n_steps, 1), dtype=np.float32)  # Add bias term
-        
-        #Choose correct input
-        if x is None and not self.feedback:
-            #raise ValueError("Error: provide x or enable feedback")
-            inputs = torch.ones((self.in_weights.shape[0], self.in_weights.shape[1])).to(device)
-        elif x is not None:
-            inputs = torch.hstack((inputs, x)).to(device)
-        inputs._name_ = "inputs"
-        
-        # Set parameters
-        if self.out_weights.shape[1] == 1:
-            y_predicted = torch.zeros((n_steps,), dtype=torch.float32).to(device)
-        else:
-            y_predicted = torch.zeros((n_steps, self.out_weights.shape[1]), dtype=torch.float32).to(device)
-
-        # Get last states
-        previous_y = self.y_last
-        
-        #if not self.already_normalized:
-        if not y_start is None: #if not x is None:
-            previous_y = self.scale(outputs=y_start)[0]
-
-        # Initialize state from last availble in train
-        current_state = self.state[-1]
-        current_state._name_ = "current state"
-
-        # Predict iteratively
-        for t in range(n_steps):
-
-            # Get correct input based on feedback setting
-            current_input = inputs[t].T if not self.feedback else torch.hstack((inputs[t], previous_y)).to(device)
-
-            # Update
-            update = self.activation_function(torch.matmul(self.in_weights, current_input) + 
-                                              torch.matmul(self.weights, current_state))
-            #print("update: " + str(update.shape))
-            current_state = self.leaking_rate * update + (1 - self.leaking_rate) * current_state
-
-            # Prediction. Order of concatenation is [1, inputs, y(n-1), state]
-            complete_row = torch.hstack((current_input, current_state))
-
-            if self.out_weights.shape[1] > 1:
-                y_predicted[t,:] = torch.matmul(complete_row, self.out_weights)
-                previous_y = y_predicted[t,:]
-            else:
-                y_predicted[t] = torch.matmul(complete_row, self.out_weights)
-                previous_y = y_predicted[t]
-
-        # Denormalize predictions
-        y_predicted = self.denormalize(outputs=y_predicted)
-        return y_predicted.view(-1, self.out_weights.shape[1])
-
-    def predict2(self, n_steps, pure_prediction = True, x=None, y_start=None, continuation = True):
+    def predict(self, n_steps, pure_prediction = True, x=None, y_start=None, continuation = True):
         """Predicts n values in advance.
 
         Prediction starts from the last state generated in training.
@@ -1018,7 +689,7 @@ class EchoStateNetwork(nn.Module):
             [lastoutput, torch.zeros((n_samples, self.n_outputs))])
 
         for t in range(n_samples):
-            states[t + 1, :] = self.forward2(t, input_ = inputs[t + 1], 
+            states[t + 1, :] = self.forward(t, input_ = inputs[t + 1], 
                                                 current_state = states[t, :], 
                                                 output_pattern = outputs[t, :], 
                                                 verbose = True)
