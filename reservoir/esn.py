@@ -60,8 +60,8 @@ def NRMSELoss(yhat,y):
 def sinsq(x):
     return torch.square(torch.sin(x))
 
-def printc(string_, color_) :
-      print(colorz[color_] + string_ + colorz["endc"] )
+def printc(string_, color_, end = '\n') :
+      print(colorz[color_] + string_ + colorz["endc"] , end = end)
 
 colorz = {
   "header" : '\033[95m',
@@ -180,10 +180,11 @@ class EchoStateNetwork(nn.Module):
             if self.reservoir.n_nodes_ != self.n_nodes:
                 load_failed = 1
 
+        already_warned = False
         book_index = 0
         for i in range(max_tries):
             if i > 0:
-                printc(str(i), 'fail')
+                printc(str(i), 'fail', end = ' ')
 
             #only initialize the reservoir and connectivity matrix if we have to for speed in esn_cv.
             if not self.reservoir or not self.approximate_reservoir or load_failed == 1:
@@ -195,15 +196,12 @@ class EchoStateNetwork(nn.Module):
             else:
                 #print("LOADING MATRIX", load_failed)
                 if self.approximate_reservoir:
-
-                    self.weights = self.reservoir.get_approx_preRes(self.connectivity, i).to(device)
-                
-                    try:   
+                    try:
                         self.weights = self.reservoir.get_approx_preRes(self.connectivity, i).to(device)
                         #printc("reservoir successfully loaded (" + str(self.weights.shape) , 'green') 
                     except:
-                        printc("approx reservoir " + str(i) + " failed to load... regenerating", 'fail')
-
+                        if not i:
+                            printc("approx reservoir " + str(i) + " failed to load ...regenerating...", 'fail')
                         #skip to the next iteration of the loop
                         if i > self.reservoir.number_of_preloaded_sparse_sets:
                             load_failed = 1
@@ -217,8 +215,9 @@ class EchoStateNetwork(nn.Module):
             if max_eigenvalue > 0:
                 break
             else: 
-                printc("Loaded Reservoir is Nilpotent (max_eigenvalue ={}), connectivity ={}.. .regenerating".format(max_eigenvalue, round(self.connectivity,8)), 'fail')
-                
+                if not already_warned:
+                    printc("Loaded Reservoir is Nilpotent (max_eigenvalue ={}), connectivity ={}.. .regenerating".format(max_eigenvalue, round(self.connectivity,8)), 'fail')
+                already_warned = True
                 #if we have run out of pre-loaded reservoirs to draw from :
                 if i == max_tries - 1:
                     raise ValueError('Nilpotent reservoirs are not allowed. Increase connectivity and/or number of nodes.')
@@ -236,6 +235,8 @@ class EchoStateNetwork(nn.Module):
 
         # Set output weights to none to indicate untrained ESN
         self.out_weights = None
+        if load_failed:
+            print()
              
 
     def set_Win(self): #inputs
@@ -394,7 +395,7 @@ class EchoStateNetwork(nn.Module):
                     weight = torch.matmul(pinv,
                                           train_y )
                 elif self.l2_prop == 1:
-                    print("ridge regularizing")
+                    #print("ridge regularizing")
                     
                     ridge_x = torch.matmul(train_x.T, train_x) + \
                                        self.regularization * torch.eye(train_x.shape[1], device = self.device)

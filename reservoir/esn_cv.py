@@ -186,7 +186,7 @@ class GlobalSparseLibrary:
         """
         if self.flip_the_script:
             index = np.random.randint(len(self.book_indices))
-        print("index", index, "book indices", self.book_indices, "self.library", self.library)
+        #print("index", index, "book indices", self.book_indices, "self.library", self.library)
         book = self.library[self.book_indices[index]]
         if index != 0:
             printc("retrieving book from library" + str(self.book_indices[index]), 'green')
@@ -269,14 +269,12 @@ class ReservoirBuildingBlocks:
         in_w_shape_ = (n, m)
 
         #at the moment all input weight matrices use uniform bias.
-        self.uniform_bias = random_state.uniform(-1, 1, size = (n, 1))
+        self.bias = torch.rand( n, 1, generator = self.random_state, device = self.device) * 2 - 1
 
         #weights
         if self.input_weight_type_ == "uniform":
             self.in_weights = torch.rand( n, m, generator = self.random_state, device = self.device)
             self.in_weights = self.in_weights * 2 - 1
-
-            self.bias = torch.rand( n, 1, generator = self.random_state, device = self.device) * 2 - 1
 
         elif self.input_weight_type_ == "exponential":
             printc("BUILDING SIGN_", 'fail')
@@ -287,7 +285,6 @@ class ReservoirBuildingBlocks:
             self.sign = np.concatenate((sign1, sign2), axis = 1)
 
         #regularization
-        self.noise_z = torch.normal(0, self.noise,  size = (n, m), **self.tensorArgs)
         self.feedback_weights = torch.rand(n, 1, **self.tensorArgs) * 2 - 1
 
         #regularization
@@ -359,7 +356,7 @@ class EchoStateNetworkCV:
                  scoring_method='nrmse', log_space=True, tanh_alpha=1., esn_burn_in=0, acquisition_type='LCB',
                  max_time=np.inf, n_jobs=1, random_seed=None, esn_feedback=None, update_interval=1, verbose=True,
                  plot=True, target_score=0., exp_weights = False, obs_index = None, target_index = None, 
-                 noise = 0, model_type = "random", activation_function = nn.Tanh(), input_weight_type = "uniform", 
+                 model_type = "random", activation_function = nn.Tanh(), input_weight_type = "uniform", 
                  Distance_matrix = None, n_res = 1, count = None, reservoir = None,
                  backprop = False, interactive = False, approximate_reservoir = True,
                  failure_tolerance = 1, length_min = None, device = device, learning_rate = 0.005,
@@ -424,7 +421,6 @@ class EchoStateNetworkCV:
         self.exp_weights = exp_weights
         self.obs_index = obs_index
         self.target_index = target_index
-        self.noise = noise
         self.model_type = model_type
 
         self.Distance_matrix = Distance_matrix
@@ -817,7 +813,7 @@ class EchoStateNetworkCV:
             else:
                 labels = None, None
             self.ax[0].plot(np.log(self.errorz_step), alpha = 0.5, color = "blue", label = labels[0] )
-            print(self.errorz)
+            #print(self.errorz)
             self.ax[0].plot(np.log(self.errorz), alpha = 0.2, color = "green", label = labels[1])
             self.ax[0].set_title("log error vs Bayes Opt. step")
             self.ax[0].set_ylabel("log(mse)")
@@ -825,8 +821,9 @@ class EchoStateNetworkCV:
             self.ax[0].legend()
             
             #plot 2:
+            ######### Another idea is to have the middle plot do what ax[2] is doing and have the far right plot display the best guess yet.
+
             #self.my_loss_plot(ax = self.ax[1], pred = pred_2plot, valid = validate_y_2plot, start_loc = 1800)
-            print("elastic_losses")
             try:
                 if l2_prop != 1:
                     self.ax[1].plot(elastic_losses )#torch.log
@@ -845,12 +842,12 @@ class EchoStateNetworkCV:
             self.ax[2].plot(validate_y_2plot[:steps_displayed].to("cpu"), alpha = 0.5, color = "blue", label = "train")
 
             if pred_.shape[0] == 1:
-                self.ax[2].plot(pred_2plot[:steps_displayed], alpha = 0.3, color = "red")
+                self.ax[2].plot(pred_2plot[:steps_displayed], alpha = 0.3, color = "red", label = "latest prediction")
             else:
                 self.ax[2].plot(pred_2plot, alpha = 0.3, color = "red") #[pred_.shape[0] - 1, :]
             #ax[2].plot(pred_[:steps_displayed], alpha = 0.5, color = "red", label = "pred")
             self.ax[2].set_ylim(self.y.min().item() - 0.1, self.y.max().item() )
-            self.ax[2].set_title("guess vs step")
+            self.ax[2].set_title("Most recent validation prediction on the test set")
             self.ax[2].set_ylabel("y")
             self.ax[2].set_xlabel("time step")
             pl.legend()
@@ -896,7 +893,6 @@ class EchoStateNetworkCV:
             
             RC.train(X = train_x, y = train_y,  burn_in=self.esn_burn_in, learning_rate = self.learning_rate)
 
-            print(RC.l2_prop)
             # Validation score
             score, pred_ = RC.test(x=validate_x, y=validate_y, scoring_method='mse', steps_ahead = self.steps_ahead)
             
