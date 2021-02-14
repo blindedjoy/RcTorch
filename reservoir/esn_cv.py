@@ -353,7 +353,7 @@ class EchoStateNetworkCV:
 
     def __init__(self, bounds, subsequence_length, model=EchoStateNetwork, eps=1e-8, initial_samples=50,
                  validate_fraction=0.2, steps_ahead=1, max_iterations=1000, batch_size=1, cv_samples=1,
-                 scoring_method='nrmse', log_space=True, tanh_alpha=1., esn_burn_in=0, acquisition_type='LCB',
+                 scoring_method='nrmse', log_space=True, tanh_alpha=1., esn_burn_in=0, #acquisition_type='LCB',
                  max_time=np.inf, n_jobs=1, random_seed=None, esn_feedback=None, update_interval=1, verbose=True,
                  plot=True, target_score=0., exp_weights = False, obs_index = None, target_index = None, 
                  model_type = "random", activation_function = nn.Tanh(), input_weight_type = "uniform", 
@@ -362,15 +362,24 @@ class EchoStateNetworkCV:
                  failure_tolerance = 1, length_min = None, device = device, learning_rate = 0.005,
                  already_normalized = False, reg_lr = 10**-4):
         
+        #### uncompleted tasks:
+        #1) upgrade to multiple acquisition functions.
+        #self.acquisition_type = acquisition_type
+
+        ######
+        #unknown: utility:
+        self.device = torch.device(device)
+        if 'cuda' in str(device):
+            torch.cuda.empty_cache()
+        #turbo variables
+        self.length_min = length_min
+        self.failure_tolerance = failure_tolerance
+
         print("FEEDBACK:", esn_feedback, ", device:", device)
         self.learning_rate = learning_rate
         self.reg_lr = reg_lr
         
-        if 'cuda' in str(device):
-            torch.cuda.empty_cache()
-        self.device = torch.device(device)
-        self.length_min = length_min
-        self.failure_tolerance = failure_tolerance
+
         self.approximate_reservoir = approximate_reservoir
         self.interactive = interactive
         if interactive:
@@ -407,7 +416,7 @@ class EchoStateNetworkCV:
         self.alpha = tanh_alpha
         self.esn_burn_in =  torch.tensor(esn_burn_in, dtype=torch.int32).item()   #torch.adjustment required
         self.esn_feedback = esn_feedback
-        self.acquisition_type = acquisition_type
+        
         self.max_time = max_time
         self.n_jobs = n_jobs
         self.seed = random_seed
@@ -437,6 +446,8 @@ class EchoStateNetworkCV:
                                                               n_nodes = self.bounds["n_nodes"],
                                                               input_weight_type = self.input_weight_type)
         self.iteration_durations = []
+
+        
 
     def normalize_bounds(self, bounds):
         """Makes sure all bounds feeded into GPyOpt are scaled to the domain [0, 1],
@@ -974,13 +985,13 @@ class EchoStateNetworkCV:
         
         # Initialize new random state
         self.reservoir_matrices.n_inputs_ = (y.shape[1] - 1) if type(x) == type(None) else x.shape[1]
-        if self.approximate_reservoir:
-            self.reservoir_matrices.gen_in_weights()
+        
+        self.reservoir_matrices.gen_in_weights()
 
         self.random_state = torch.Generator().manual_seed(self.seed + 2)
 
         # Temporarily store the data
-        self.x = x.type(torch.float32).to(device) if x is not None else None
+        self.x = x.type(torch.float32).to(device) if x is not None else torch.ones(*y.shape, device = self.device)
         self.y = y.type(torch.float32).to(device)                            
 
         # Inform user

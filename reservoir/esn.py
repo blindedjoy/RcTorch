@@ -81,7 +81,7 @@ class EchoStateNetwork(nn.Module):
     def __init__(self, spectral_radius=0.9, n_nodes = 1000, activation_f = nn.Tanh(), feedback = True,
                  noise = 0, input_scaling = 0.5, leaking_rate = 0.99, regularization = 10 **-3, backprop = False,
                  criterion = nn.NLLLoss(), classification = False, output_size = 50, feedback_scaling = 0.5,
-                 already_normalized = False, bias = "uniform", connectivity = 0.1, random_state = 123,
+                 bias = "uniform", connectivity = 0.1, random_state = 123,
                  exponential = False, obs_idx = None, resp_idx = None,
                  reservoir = None, model_type = "uniform", input_weight_type = None, approximate_reservoir = True,
                  device = device, epochs = 7, PyESNnoise=0.001, l2_prop = 1, reg_lr = 10**-4):
@@ -95,9 +95,6 @@ class EchoStateNetwork(nn.Module):
         #faster, approximate implimentation
         self.approximate_reservoir = approximate_reservoir
         self.reservoir = reservoir
-        
-        # is this obselete? check.
-        self.already_normalized = already_normalized
         
         # backprop, feedback, random state and device ('cuda' or not)
         self.backprop = backprop
@@ -117,17 +114,17 @@ class EchoStateNetwork(nn.Module):
         self.spectral_radius = spectral_radius
         self.regularization = regularization
 
+        #noise from pyesn — unlike my implimentation it happens outside the activation function. 
+        #TBD if this actually can improve the RC.
         self.PyESNnoise = 0.001
         self.external_noise = torch.rand(self.n_nodes)
 
-        
         #activation
         self.activation_function = activation_f
         
-        #backprop layers
+        #Reservoir layer
         self.LinRes = nn.Linear(self.n_nodes, self.n_nodes, bias = False)
 
-        
         #https://towardsdatascience.com/logistic-regression-on-mnist-with-pytorch-b048327f8d19
         self.classification = classification
         if self.classification:
@@ -155,10 +152,13 @@ class EchoStateNetwork(nn.Module):
             current_state: the current state at timestep t
             output_pattern: the output pattern at timestep t.
         """
-
-        preactivation = self.LinIn(input_) + self.LinRes(current_state)
+        
+        preactivation = self.LinIn(input_) + self.bias_ + self.LinRes(current_state)
         if self.feedback:
             preactivation += self.LinFeedback(output_pattern)
+
+        if self.noise:
+            preactivation += self.noise
 
         update = self.activation_function(preactivation) + self.PyESNnoise * (self.external_noise - 0.5)
 
@@ -248,27 +248,17 @@ class EchoStateNetwork(nn.Module):
             inputs:
         """
         with torch.no_grad():
-            
+            n, m = self.n_nodes, self.n_inputs,
+            #weight
             if not self.reservoir or 'in_weights' not in dir(self.reservoir): 
                 print("GENERATING IN WEIGHTS")
 
-                in_weights = torch.rand(self.n_nodes, self.n_inputs, generator = self.random_state, device = self.device)
+                in_weights = torch.rand(n, m, generator = self.random_state, device = self.device)
                 in_weights =  in_weights * 2 - 1
-                
-                if self.bias == "uniform":
-                    #random uniform distributed bias
-                    bias = torch.rand(self.n_nodes, 1, generator = self.random_state, device = self.device)
-                    bias = bias * 2 - 1
-                else:
-                    bias = torch.ones(self.n_nodes, 1, device = self.device) * self.bias
 
-                #if there is white noise add it in (this will be much more useful later with the exponential model)
-                if self.noise:
-                    # CURRENTLY THIS IS NOT BEING USED AT ALL
-                    in_weight_white_noise = torch.normal(0, self.noise, device = self.device, size = (self.n_nodes, n_inputs))
-                    #in_weights += white_noise
+                #bias matrix
 
-                in_weights = bias * self.input_scaling #torch.hstack((bias, in_weights)) * self.input_scaling
+                #feedback weights
                 
             else:
                 
@@ -280,13 +270,35 @@ class EchoStateNetwork(nn.Module):
                 #    feedback_weights = self.feedback_scaling * self.reservoir.feedback_weights
                 #    in_weights = torch.hstack((in_weights, feedback_weights)).view(self.n_nodes, -1)
 
-        if self.feedback:
-            feedback_weights = torch.rand(self.n_nodes, 1, device = self.device, generator = self.random_state) * 2 - 1
-            feedback_weights *= self.feedback_scaling
-            feedback_weights = feedback_weights.view(self.n_nodes, -1)
-            feedback_weights = nn.Parameter(feedback_weights, requires_grad = False) 
-        else:
-            feedback_weights = None
+            in_weights *= self.input_scaling
+
+            #if there is white noise add it in (this will be much more useful later with the exponential model)
+            #populate this bias matrix based on the noise
+
+            #bias
+            #uniform bias can be seen as means of normal random variables.
+            if self.bias == "uniform":
+                #random uniform distributed bias
+                bias = torch.rand(n, m, generator = self.random_state, device = self.device)
+                bias = bias * 2 - 1
+            elif type(self.bias) in [type(1), type(1.5)]:
+                bias = torch.ones(n, m, device = self.device) * self.bias
+
+            #if self.noise:
+            #    in_weight_white_noise = torch.normal(0, self.noise, 
+            #                                             device = self.device, 
+            #                                             size = in_weights.shape)
+            
+            # howdo we add in the noise?
+            self.bias_ = bias
+
+            if self.feedback:
+                feedback_weights = torch.rand(self.n_nodes, 1, device = self.device, generator = self.random_state) * 2 - 1
+                feedback_weights *= self.feedback_scaling
+                feedback_weights = feedback_weights.view(self.n_nodes, -1)
+                feedback_weights = nn.Parameter(feedback_weights, requires_grad = False) 
+            else:
+                feedback_weights = None
    
         in_weights = nn.Parameter(in_weights, requires_grad = False) #.to(self.device)
         #.to(self.device)
@@ -328,7 +340,13 @@ class EchoStateNetwork(nn.Module):
         # Normalize inputs and outputs
         y = self.scale(outputs=y, keep=True)
         
-        orig_X = X.clone().detach()
+        try:
+            orig_X = X.clone().detach()
+        except:
+            if not X:
+                X = torch.ones(*y.shape)
+
+
         if not X is None:
 
             if X.std() != 0:
@@ -379,7 +397,7 @@ class EchoStateNetwork(nn.Module):
 
                 #run through the states.
                 for t in range(1, X.shape[0]):
-                    self.state[t, :] = self.forward(t, input_ = X[t].T, 
+                    self.state[t, :] = self.forward(t, input_ = X[t].T,
                                                         current_state = self.state[t-1,:], 
                                                         output_pattern = y[t-1]).squeeze()
 
@@ -572,6 +590,8 @@ class EchoStateNetwork(nn.Module):
         # Run prediction
         final_t =y.shape[0]
         if steps_ahead is None:
+            if x is None:
+                x = torch.ones(*y.shape, device = device)
             y_predicted = self.predict(n_steps = y.shape[0], x=x, y_start=y_start)
             #printc("predicting "  + str(y.shape[0]) + "steps", 'blue')
         else:
@@ -608,6 +628,7 @@ class EchoStateNetwork(nn.Module):
         # Normalize the inputs (like was done in train)
         if not x is None and self._input_means:
             x = self.scale(inputs=x)
+
         
         # Set parameters
         if self.LinOut.weight.shape[0] == 1:
@@ -615,7 +636,6 @@ class EchoStateNetwork(nn.Module):
         else:
             y_predicted = torch.zeros((n_steps, self.LinOut.weight.shape[0]), dtype=torch.float32).to(device)
 
-        #if not self.already_normalized:
         n_samples = x.shape[0]
 
         if not y_start is None: #if not x is None:
@@ -685,8 +705,7 @@ class EchoStateNetwork(nn.Module):
         # Normalize the arguments (like was done in train)
         y = self.scale(outputs=y)
         if not x is None:
-            if not self.already_normalized:
-                x = self.scale(inputs=x)
+            x = self.scale(inputs=x)
 
         # Timesteps in y
         t_steps = y.shape[0]
@@ -899,7 +918,7 @@ class EchoStateNetwork(nn.Module):
         #for tensor in [train_x, train_y]:
         #     print('device',tensor.get_device())
         
-        if not inputs is None and not self.already_normalized:
+        if not inputs is None:
             transformed.append((inputs * self._input_stds) + self._input_means)
 
         if not outputs is None:
@@ -934,7 +953,7 @@ class EchoStateNetwork(nn.Module):
         #for tensor in [train_x, train_y]:
         #     print('device',tensor.get_device())
         
-        if not inputs is None and not self.already_normalized:
+        if not inputs is None:
             transformed.append((inputs * self._input_stds) + self._input_means)
 
         if not outputs is None:
