@@ -267,14 +267,16 @@ class ReservoirBuildingBlocks:
 
         n, m = self.n_nodes_, self.n_inputs_
         in_w_shape_ = (n, m)
+        print('m,n', m,n)
 
         #at the moment all input weight matrices use uniform bias.
         self.bias = torch.rand( n, 1, generator = self.random_state, device = self.device) * 2 - 1
 
         #weights
         if self.input_weight_type_ == "uniform":
-            self.in_weights = torch.rand( n, m, generator = self.random_state, device = self.device)
+            self.in_weights = torch.rand((n,m), generator = self.random_state, device = self.device)
             self.in_weights = self.in_weights * 2 - 1
+            print('in_weights', self.in_weights.shape)
 
         elif self.input_weight_type_ == "exponential":
             printc("BUILDING SIGN_", 'fail')
@@ -359,9 +361,10 @@ class EchoStateNetworkCV:
                  model_type = "random", activation_function = nn.Tanh(), input_weight_type = "uniform", 
                  Distance_matrix = None, n_res = 1, count = None, reservoir = None,
                  backprop = False, interactive = False, approximate_reservoir = True,
-                 failure_tolerance = 1, length_min = None, device = device, learning_rate = 0.005,
-                 already_normalized = False, reg_lr = 10**-4):
+                 failure_tolerance = 1, length_min = None, device = device, learning_rate = 0.005):
         
+        print("FEEDBACK:", esn_feedback, ", device:", device)
+
         #### uncompleted tasks:
         #1) upgrade to multiple acquisition functions.
         #self.acquisition_type = acquisition_type
@@ -375,17 +378,17 @@ class EchoStateNetworkCV:
         self.length_min = length_min
         self.failure_tolerance = failure_tolerance
 
-        print("FEEDBACK:", esn_feedback, ", device:", device)
-        self.learning_rate = learning_rate
-        self.reg_lr = reg_lr
-        
-
-        self.approximate_reservoir = approximate_reservoir
+        #interactive plotting for jupyter notebooks.
         self.interactive = interactive
         if interactive:
             self.fig, self.ax = pl.subplots(1,3, figsize = (16,4))
 
-        self.already_normalized = already_normalized
+        #learning rates
+        self.learning_rate = learning_rate
+        #self.reg_lr = reg_lr <--- custom elastic net regularization failed. vestigal variable.
+        
+        #approximate reservoir
+        self.approximate_reservoir = approximate_reservoir
         
         self.backprop = backprop
         self.batch_size = batch_size
@@ -896,7 +899,7 @@ class EchoStateNetworkCV:
             RC = self.model(**arguments, exponential = self.exp_weights, activation_f = self.activation_function,
                 obs_idx = self.obs_index, resp_idx = self.target_index,  model_type = self.model_type,
                 input_weight_type = self.input_weight_type, approximate_reservoir = self.approximate_reservoir,
-                backprop = self.backprop, already_normalized = self.already_normalized, reg_lr = self.reg_lr)
+                backprop = self.backprop)
                 # Distance_matrix = self.Distance_matrix)
                 # random_seed = random_seed) plot = False,
 
@@ -984,7 +987,7 @@ class EchoStateNetworkCV:
         self.validate_data(y, x, self.verbose)
         
         # Initialize new random state
-        self.reservoir_matrices.n_inputs_ = (y.shape[1] - 1) if type(x) == type(None) else x.shape[1]
+        self.reservoir_matrices.n_inputs_ = max(y.shape[1] - 1, 1) if type(x) == type(None) else x.shape[1]
         
         self.reservoir_matrices.gen_in_weights()
 

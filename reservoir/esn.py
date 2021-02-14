@@ -109,7 +109,8 @@ class EchoStateNetwork(nn.Module):
         self.feedback_scaling = feedback_scaling
         self.input_scaling = input_scaling
         self.leaking_rate = leaking_rate
-        self.noise = noise
+        self.noise = torch.rand(self.n_nodes).view(-1,1) if noise else None
+
         self.n_nodes = n_nodes
         self.spectral_radius = spectral_radius
         self.regularization = regularization
@@ -152,17 +153,15 @@ class EchoStateNetwork(nn.Module):
             current_state: the current state at timestep t
             output_pattern: the output pattern at timestep t.
         """
-        
         preactivation = self.LinIn(input_) + self.bias_ + self.LinRes(current_state)
+
         if self.feedback:
             preactivation += self.LinFeedback(output_pattern)
-
         if self.noise:
             preactivation += self.noise
-
         update = self.activation_function(preactivation) + self.PyESNnoise * (self.external_noise - 0.5)
-
-        return self.leaking_rate * update + (1 - self.leaking_rate) * current_state
+        next_state = self.leaking_rate * update + (1 - self.leaking_rate) * current_state
+        return next_state
 
 
     def gen_reservoir(self, obs_idx = None, targ_idx = None, load_failed = None):
@@ -291,6 +290,8 @@ class EchoStateNetwork(nn.Module):
             
             # howdo we add in the noise?
             self.bias_ = bias
+            if self.bias_.shape[1] == 1:
+                self.bias_ = self.bias_.squeeze()
 
             if self.feedback:
                 feedback_weights = torch.rand(self.n_nodes, 1, device = self.device, generator = self.random_state) * 2 - 1
@@ -398,8 +399,8 @@ class EchoStateNetwork(nn.Module):
                 #run through the states.
                 for t in range(1, X.shape[0]):
                     self.state[t, :] = self.forward(t, input_ = X[t].T,
-                                                        current_state = self.state[t-1,:], 
-                                                        output_pattern = y[t-1]).squeeze()
+                                                       current_state = self.state[t-1,:], 
+                                                       output_pattern = y[t-1]).squeeze()
 
                 extended_states = torch.hstack((self.state, X))
                 extended_states._name_ = "complete_data"
