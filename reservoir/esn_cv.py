@@ -302,66 +302,111 @@ class EchoStateNetworkCV:
 
     Searches optimal solution within the provided bounds.
 
+    The acquisition function currently implimented is Thompson Sampling.
+
     Parameters
     ----------
     bounds : dict
         A dictionary specifying the bounds for optimization. The key is the parameter name and the value
         is a tuple with minimum value and maximum value of that parameter. E.g. {'n_nodes': (100, 200), ...}
-    model : class: {EchoStateNetwork, SimpleCycleReservoir}
+    model : class: {EchoStateNetwork}
             Model class to optimize
     subsequence_length : int
         Number of samples in one cross-validation sample
-    eps : float
-        The number specifying the maximum amount of change in parameters before considering convergence
     initial_samples : int
         The number of random samples to explore the  before starting optimization
     validate_fraction : float
         The fraction of the data that may be used as a validation set
-    steps_ahead : int or None
-        Number of steps to use in n-step ahead prediction for cross validation. `None` indicates prediction
-        of all values in the validation array.
-    max_iterations : int
-        Maximim number of iterations in optimization
     batch_size : int
         Batch size of samples used by GPyOpt
     cv_samples : int
         Number of samples of the objective function to evaluate for a given parametrization of the ESN
     scoring_method : {'mse', 'rmse', 'tanh', 'nmse', 'nrmse', 'log', 'log-tanh', 'tanh-nrmse'}
         Evaluation metric that is used to guide optimization
-    log_space : bool
-        Optimize in log space or not (take the logarithm of the objective or not before modeling it in the GP)
-    tanh_alpha : float
-        Alpha coefficient used to scale the tanh error function: alpha * tanh{(1 / alpha) * mse}
     esn_burn_in : int
         Number of time steps to discard upon training a single Echo State Network
-    acquisition_type : {'MPI', 'EI', 'LCB'}
-        The type of acquisition function to use in Bayesian Optimization
-    max_time : float
-        Maximum number of seconds before quitting optimization
-    n_jobs : int
-        Maximum number of concurrent jobs
     esn_feedback : bool or None
         Build ESNs with feedback ('teacher forcing') if available
-    update_interval : int (default 1)
-        After how many acquisitions the GPModel should be updated
     verbose : bool
         Verbosity on or off
+
+    device : 
+        Torch device (either 'cpu' or 'cuda')
+    interactive : BOOL
+        if true, make interactive python plots. Useful in a jupyter notebook.
+    approximate reservoir:
+        if true, builds approximate sparse reservoirs and (ie approximate connectivity not precise). 
+        It likely slightly reduces the final result's score but greatly speeds up the algorithm.
+    input_weight_type : string
+        {"uniform"} is currently implimented. 
+        #TODO: exponential and normal weights.
+    activation function: nn.function
+        so far I've only played with tanh. Would be worth investigating other fuctions as well.
+    model_type: 
+        right now it is unclear whether this means reservoir type or model type.
+        likely that is unclear because I haven't implimented cyclic or exponential here. Food for thought.
+
+    failure tolerance: int
+        the number of times that the model can fail to improve before length is in increased in turbo algo.
+    success_tolerance: int
+        like the explanation above this needs work.
+    length_min: int
+        ?????
+
+    learning_rate:
+        if backprop is True, then the RC will train with gradient descent. In this case this is that learning rate.
+
+
+
+    #### BOTorch Turbo bayesian optimization parameters
+    success_tolerance:
+    failure_tolerance:
+
+    
+
+    #################### NOT IMPLIMENTED YET IN TORCH version (Hayden Fork)
+    obs_index = None, target_index = None,  Distance_matrix = None, n_res = 1, 
+    self.obs_index = obs_index
+     self.target_index = target_index
+
+
+
+    #################### NOT IMPLIMENTED IN TORCH version (came from Reinier)
+
+    #################### eps, aquisition type and njobs seem like good things to port over.
+    steps_ahead : int or None
+        Number of steps to use in n-step ahead prediction for cross validation. `None` indicates prediction
+        of all values in the validation array.
+    max_iterations : int
+        Maximim number of iterations in optimization
+    log_space : bool
+        Optimize in log space or not (take the logarithm of the objective or not before modeling it in the GP)
+        ####### NOT IMPLIMENTED IN TORCH
+    tanh_alpha : float
+        Alpha coefficient used to scale the tanh error function: alpha * tanh{(1 / alpha) * mse}
+    max_time : float
+        Maximum number of seconds before quitting optimization
+    acquisition_type : {'MPI', 'EI', 'LCB'}
+        The type of acquisition function to use in Bayesian Optimization
+    eps : float
+        The number specifying the maximum amount of change in parameters before considering convergence
     plot : bool
         Show convergence plot at end of optimization
     target_score : float
         Quit when reaching this target score
+    n_jobs : int
+        Maximum number of concurrent jobs
+    ####################
 
     """
 
-    def __init__(self, bounds, subsequence_length, model=EchoStateNetwork, eps=1e-8, initial_samples=50,
-                 validate_fraction=0.2, steps_ahead=1, max_iterations=1000, batch_size=1, cv_samples=1,
-                 scoring_method='nrmse', log_space=True, tanh_alpha=1., esn_burn_in=0, #acquisition_type='LCB',
-                 max_time=np.inf, n_jobs=1, random_seed=None, esn_feedback=None, update_interval=1, verbose=True,
-                 plot=True, target_score=0., exp_weights = False, obs_index = None, target_index = None, 
-                 model_type = "random", activation_function = nn.Tanh(), input_weight_type = "uniform", 
-                 Distance_matrix = None, n_res = 1, count = None, reservoir = None,
-                 backprop = False, interactive = False, approximate_reservoir = True,
-                 failure_tolerance = 1, length_min = None, device = device, learning_rate = 0.005):
+    def __init__(self, bounds, subsequence_length, model=EchoStateNetwork, initial_samples=50,
+                 validate_fraction=0.2, steps_ahead=1, batch_size=1, cv_samples=1,
+                 scoring_method='nrmse', esn_burn_in=0, random_seed=None, esn_feedback=None, 
+                 verbose=True, model_type = "random", activation_function = nn.Tanh(), 
+                 input_weight_type = "uniform", backprop = False, interactive = False, 
+                 approximate_reservoir = True, failure_tolerance = 1, length_min = None, 
+                 device = device, learning_rate = 0.005, success_tolerance = 3):
         
         print("FEEDBACK:", esn_feedback, ", device:", device)
 
@@ -370,69 +415,54 @@ class EchoStateNetworkCV:
         #self.acquisition_type = acquisition_type
 
         ######
-        #unknown: utility:
+        
         self.device = torch.device(device)
+        #unknown: utility:
         if 'cuda' in str(device):
             torch.cuda.empty_cache()
+
         #turbo variables
-        self.length_min = length_min
+        self.backprop = backprop
+        self.batch_size = batch_size
         self.failure_tolerance = failure_tolerance
+        self.length_min = length_min
+        self.success_tolerance = success_tolerance
+
 
         #interactive plotting for jupyter notebooks.
         self.interactive = interactive
         if interactive:
             self.fig, self.ax = pl.subplots(1,3, figsize = (16,4))
 
-        #learning rates
         self.learning_rate = learning_rate
-        #self.reg_lr = reg_lr <--- custom elastic net regularization failed. vestigal variable.
-        
-        #approximate reservoir
         self.approximate_reservoir = approximate_reservoir
-        
-        self.backprop = backprop
-        self.batch_size = batch_size
-        
+
         # Bookkeeping
         self.bounds = bounds
         self.parameters = OrderedDict(bounds) 
         self.errorz, self.errorz_step = [], []
-        
-        # Fix order
         self.free_parameters = []
         self.fixed_parameters = []
         self.n_res = n_res
-        self.count_ = None
 
         # Store settings
         self.model = model
         self.subsequence_length = subsequence_length
-        self.eps = eps
         self.initial_samples = initial_samples
         self.validate_fraction = validate_fraction
         self.steps_ahead = steps_ahead
-        self.max_iterations = max_iterations
         self.batch_size = batch_size
         self.cv_samples = cv_samples
         self.scoring_method = scoring_method
-        self.log_space = log_space
-        self.alpha = tanh_alpha
         self.esn_burn_in =  torch.tensor(esn_burn_in, dtype=torch.int32).item()   #torch.adjustment required
         self.esn_feedback = esn_feedback
-        
-        self.max_time = max_time
-        self.n_jobs = n_jobs
+
         self.seed = random_seed
         self.feedback = esn_feedback
-        self.update_interval = update_interval
         self.verbose = verbose
-        self.plot = plot
-        self.target_score = target_score
 
         #Hayden modifications: varying the architectures
-        self.exp_weights = exp_weights
-        self.obs_index = obs_index
-        self.target_index = target_index
+        
         self.model_type = model_type
 
         self.Distance_matrix = Distance_matrix
@@ -656,7 +686,7 @@ class EchoStateNetworkCV:
         arguments = self.construct_arguments(self.range_bounds)
 
         # Build network
-        esn = self.model(**arguments, exponential = self.exp_weights, activation_f = self.activation_function,
+        esn = self.model(**arguments, activation_f = self.activation_function,
                 obs_idx = self.obs_index, resp_idx = self.target_index, plot = False, model_type = self.model_type,
                 input_weight_type = self.input_weight_type, already_normalized = already_normalized)
                 #random_seed = self.random_seed) Distance_matrix = self.Distance_matrix)
@@ -896,7 +926,7 @@ class EchoStateNetworkCV:
             #print("arguments", arguments)
 
             # Build network
-            RC = self.model(**arguments, exponential = self.exp_weights, activation_f = self.activation_function,
+            RC = self.model(**arguments, activation_f = self.activation_function,
                 obs_idx = self.obs_index, resp_idx = self.target_index,  model_type = self.model_type,
                 input_weight_type = self.input_weight_type, approximate_reservoir = self.approximate_reservoir,
                 backprop = self.backprop)
@@ -930,7 +960,7 @@ class EchoStateNetworkCV:
         
         #print('success_tolerance', self.state.success_counter)
         #print('failure_tolerance', self.state.failure_counter)
-        score_str = 'iter ' + str(self.count_) +': Score ' + f'{error.type(torch.float32).mean():.4f}'# +', log(\u03BC):' + f'{log_mu:.4f}' 
+        score_str = 'iter ' + str(self.count) +': Score ' + f'{error.type(torch.float32).mean():.4f}'# +', log(\u03BC):' + f'{log_mu:.4f}' 
 
         """
         score_str += " seed " + str(random_seeds) + " n " + str(self.scores.shape[0])
@@ -1007,7 +1037,7 @@ class EchoStateNetworkCV:
         self.errorz, self.errorz_step = [], []
         dim = len(self.free_parameters)
         self.state = TurboState(dim, length_min = self.length_min, 
-                                batch_size=self.batch_size, success_tolerance = self.eps)
+                                batch_size=self.batch_size, success_tolerance = self.success_tolerance)
         
         self.count = 1
         X_turbo = get_initial_points(self.scaled_bounds.shape[1], self.initial_samples).to(device)

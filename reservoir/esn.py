@@ -82,7 +82,7 @@ class EchoStateNetwork(nn.Module):
                  noise = 0, input_scaling = 0.5, leaking_rate = 0.99, regularization = 10 **-3, backprop = False,
                  criterion = nn.NLLLoss(), classification = False, output_size = 50, feedback_scaling = 0.5,
                  bias = "uniform", connectivity = 0.1, random_state = 123,
-                 exponential = False, obs_idx = None, resp_idx = None,
+                 obs_idx = None, resp_idx = None,
                  reservoir = None, model_type = "uniform", input_weight_type = None, approximate_reservoir = True,
                  device = device, epochs = 7, PyESNnoise=0.001, l2_prop = 1, reg_lr = 10**-4):
         super().__init__()
