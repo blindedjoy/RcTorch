@@ -109,9 +109,10 @@ class EchoStateNetwork(nn.Module):
         self.feedback_scaling = feedback_scaling
         self.input_scaling = input_scaling
         self.leaking_rate = leaking_rate
-        self.noise = torch.rand(self.n_nodes).view(-1,1) if noise else None
-
         self.n_nodes = n_nodes
+        self.noise = noise #torch.rand(self.n_nodes).view(-1,1) if noise else None
+
+        
         self.spectral_radius = spectral_radius
         self.regularization = regularization
 
@@ -153,6 +154,9 @@ class EchoStateNetwork(nn.Module):
             current_state: the current state at timestep t
             output_pattern: the output pattern at timestep t.
         """
+        # generator = self.random_state, device = self.device)  
+        
+        
         preactivation = self.LinIn(input_) + self.bias_ + self.LinRes(current_state)
 
         if self.feedback:
@@ -281,12 +285,14 @@ class EchoStateNetwork(nn.Module):
                 bias = torch.rand(n, m, generator = self.random_state, device = self.device)
                 bias = bias * 2 - 1
             elif type(self.bias) in [type(1), type(1.5)]:
-                bias = torch.ones(n, m, device = self.device) * self.bias
+                bias = bias = torch.zeros(n, m, device = self.device)
+                bias = bias + self.bias
 
-            #if self.noise:
-            #    in_weight_white_noise = torch.normal(0, self.noise, 
-            #                                             device = self.device, 
-            #                                             size = in_weights.shape)
+                #bias += torch.normal(mean = 0, std = self.noise, size = (n, m))
+
+            #bias = torch.ones(n, m, device = self.device) * self.bias
+            if self.noise:
+                bias += torch.normal(0, self.noise, device = self.device, size = (n,m))
             
             # howdo we add in the noise?
             self.bias_ = bias
@@ -371,7 +377,7 @@ class EchoStateNetwork(nn.Module):
         self.LinIn = nn.Linear(self.n_nodes, 1, bias = False).to(device)
         self.LinFeedback = nn.Linear(self.n_nodes, 1, bias = False).to(device)
         self.LinIn.weight, self.LinFeedback.weight = self.set_Win()
-        self.LinOut = nn.Linear(self.n_nodes + 1, y.shape[1], bias = False).to(device)
+        self.LinOut = nn.Linear(self.n_nodes + 1, y.shape[1]).to(device)
         if not self.classification:
             self.out_activation = self.LinOut
         
@@ -402,7 +408,10 @@ class EchoStateNetwork(nn.Module):
                                                        current_state = self.state[t-1,:], 
                                                        output_pattern = y[t-1]).squeeze()
 
-                extended_states = torch.hstack((self.state, X))
+                #print("self.state", self.state)
+                #print("X", X)
+                #print("ones", torch.ones(*X.shape))
+                extended_states = torch.hstack((torch.ones(*X.shape), self.state, X))
                 extended_states._name_ = "complete_data"
 
                 train_x = extended_states[burn_in:, :]
@@ -421,6 +430,9 @@ class EchoStateNetwork(nn.Module):
                     ridge_y = torch.matmul(train_x.T, train_y)
                     ridge_x_inv = torch.pinverse(ridge_x)
                     weight = ridge_x_inv @ridge_y
+
+                    bias = weight[0]
+                    weight = weight[1:]
                     #torch.solve solves AX = B. Here X is beta_hat, A is ridge_x, and B is ridge_y
                     #weight = torch.solve(ridge_y, ridge_x).solution
 
@@ -535,10 +547,7 @@ class EchoStateNetwork(nn.Module):
             if keep:
                 # Store for denormalization
                 self._input_means = inputs.mean(axis=0)
-                self._input_stds = inputs.std(dim = 0) #, ddof = 1)
-
-                print("input stds", self._input_stds)
-                assert 1 == 0
+                self._input_stds = inputs.std(dim = 0)
 
             # Transform
             transformed.append((inputs - self._input_means) / self._input_stds)
@@ -623,7 +632,7 @@ class EchoStateNetwork(nn.Module):
 
         """
         # Check if ESN has been trained
-        if self.y_last is None: #self.out_weights is None or 
+        if self.y_last is None: 
             raise ValueError('Error: ESN not trained yet')
         
         # Normalize the inputs (like was done in train)
@@ -667,12 +676,14 @@ class EchoStateNetwork(nn.Module):
             extended_state_spec = torch.cat([states[t+1,:], inputs[t+1, :]])
             #print("extended_state_spec", extended_state_spec.shape)
             #print("self.LinOut.weight", extended_state_spec.shape)
-            outputs[t+1,:] = torch.dot(self.LinOut.weight.squeeze(), extended_state_spec.squeeze()) #torch.dot(self.LinOut.weight, 
+            outputs[t+1,:] = torch.dot(self.LinOut.weight.squeeze(),extended_state_spec.squeeze()) + self.LinOut.bias#torch.dot(self.LinOut.weight.squeeze(), extended_state_spec.squeeze()) + self.LinOut.bias#torch.dot(self.LinOut.weight, 
 
         # Denormalize predictions
         #outputs = self.out_weights.T@outputs)#complete_data.T)#outputs=outputs[1:])
         #y_predicted.view(-1, self.n_outputs)
         #print("outputs", y_predicted.shape)
+        #outputs[1:] = outputs[1:] 
+        return self.denormalize(outputs = outputs[1:]).view(-1, self.n_outputs) 
         try:
             return self.denormalize(outputs = outputs[1:]).view(-1, self.n_outputs) # 
         except:
@@ -877,7 +888,7 @@ class EchoStateNetwork(nn.Module):
         elif method == 'rmse':
             error = torch.sqrt(torch.mean(torch.square(errors)))
         elif method == 'nmse':
-            error = torch.mean(torch.square(errors)) / torch.square(target.ravel().std())#ddof=1))
+            error = torch.mean(torch.square(errors)) / torch.square(target.squeeze().std())#ddof=1))
         elif method == 'nrmse':
             error = torch.sqrt(torch.mean(torch.square(errors))) / target.flatten().std()#ddof=1)
         elif method == 'tanh-nrmse':
@@ -992,7 +1003,6 @@ class ElasticNetRegularization(nn.Module):
             if keep:
                 self.input_stds  = inputs.std(axis = 0)
                 self.input_means  = inputs.mean(axis = 0)
-                assert 1 == 0
 
             std_tensor = (inputs - self.input_means)/self.input_stds
         if type(outputs) != type(None):

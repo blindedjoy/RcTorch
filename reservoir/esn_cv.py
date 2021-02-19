@@ -443,7 +443,7 @@ class EchoStateNetworkCV:
         self.errorz, self.errorz_step = [], []
         self.free_parameters = []
         self.fixed_parameters = []
-        self.n_res = n_res
+        #self.n_res = n_res
 
         # Store settings
         self.model = model
@@ -465,7 +465,7 @@ class EchoStateNetworkCV:
         
         self.model_type = model_type
 
-        self.Distance_matrix = Distance_matrix
+        #self.Distance_matrix = Distance_matrix
 
         # Normalize bounds domains and remember transformation
         self.scaled_bounds, self.bound_scalings, self.bound_intercepts = self.normalize_bounds(self.parameters)
@@ -589,23 +589,13 @@ class EchoStateNetworkCV:
         if 'regularization' in arguments:
             arguments['regularization'] = 10. ** arguments['regularization']  # Log scale correction
 
-        log_vars = ["cyclic_res_w", "cyclic_input_w", "cyclic_bias"]
+        #log_vars = ["cyclic_res_w", "cyclic_input_w", "cyclic_bias"]
+
+        log_vars = ['connectivity', 'llambda', 'llambda2', 'noise']
 
         for var in log_vars:
             if var in arguments:
                 arguments[var] = 10. ** arguments[var]  # Log scale correction
-
-        if 'connectivity' in arguments:
-            arguments['connectivity'] = 10. ** arguments['connectivity']  # Log scale correction
-
-        if 'llambda' in arguments:
-            arguments['llambda'] = 10. ** arguments['llambda']  # Log scale correction
-
-        if 'llambda2' in arguments:
-            arguments['llambda2'] = 10. ** arguments['llambda2']  # Log scale correction
-
-        if 'noise' in arguments:
-            arguments['noise'] = 10. ** arguments['noise']  # Log scale correction
 
         if 'n_nodes' in arguments:
             arguments['n_nodes'] = torch.tensor(arguments['n_nodes'], dtype = torch.int32, device = self.device)  # Discretize #torch.adjustment required
@@ -685,11 +675,12 @@ class EchoStateNetworkCV:
         """
         arguments = self.construct_arguments(self.range_bounds)
 
-        # Build network
+        # Build network 
         esn = self.model(**arguments, activation_f = self.activation_function,
-                obs_idx = self.obs_index, resp_idx = self.target_index, plot = False, model_type = self.model_type,
+                plot = False, model_type = self.model_type,
                 input_weight_type = self.input_weight_type, already_normalized = already_normalized)
                 #random_seed = self.random_seed) Distance_matrix = self.Distance_matrix)
+                #bs_idx = self.obs_index, resp_idx = self.target_index, 
 
         # Train
         esn.train(x=train_x, y=train_y, burn_in=self.esn_burn_in)
@@ -782,7 +773,7 @@ class EchoStateNetworkCV:
         self.train_length = self.subsequence_length - self.validate_length
 
         # Score storage
-        scores = torch.zeros(self.cv_samples, self.n_res, dtype = torch.float32)
+        #scores = torch.zeros(self.cv_samples, self.n_res, dtype = torch.float32)
 
         ### TORCH
         start_indices = torch.randint(low = viable_start, high = viable_stop, size = (self.cv_samples,))
@@ -927,11 +918,12 @@ class EchoStateNetworkCV:
 
             # Build network
             RC = self.model(**arguments, activation_f = self.activation_function,
-                obs_idx = self.obs_index, resp_idx = self.target_index,  model_type = self.model_type,
+                model_type = self.model_type,
                 input_weight_type = self.input_weight_type, approximate_reservoir = self.approximate_reservoir,
                 backprop = self.backprop)
                 # Distance_matrix = self.Distance_matrix)
                 # random_seed = random_seed) plot = False,
+                #obs_idx = self.obs_index, resp_idx = self.target_index,  
 
             train_x, train_y, validate_x, validate_y = self.objective_sampler()
             
@@ -1121,9 +1113,15 @@ class EchoStateNetworkCV:
         #####Bad temporary code to change it back into a dictionary
         denormed_free_parameters = list(zip(self.free_parameters, denormed_))
         denormed_free_parameters = dict([ (item[0], item[1].item()) for item in denormed_free_parameters])
+
         best_hyper_parameters = denormed_free_parameters
         for fixed_parameter in self.fixed_parameters:
-            best_parameters = {fixed_parameter : self.bounds[fixed_parameter], **best_hyper_parameters }
+            best_hyper_parameters = {fixed_parameter : self.bounds[fixed_parameter], **best_hyper_parameters }
+
+        log_vars = ['connectivity', 'llambda', 'llambda2', 'noise']
+        for var in log_vars:
+            if var in best_hyper_parameters:
+                best_hyper_parameters[var] = 10. ** best_hyper_parameters[var] 
         
         display.clear_output() 
         display.display(pl.gcf()) 
