@@ -1118,7 +1118,7 @@ class EchoStateNetworkCV:
         for fixed_parameter in self.fixed_parameters:
             best_hyper_parameters = {fixed_parameter : self.bounds[fixed_parameter], **best_hyper_parameters }
 
-        log_vars = ['connectivity', 'llambda', 'llambda2', 'noise']
+        log_vars = ['connectivity', 'llambda', 'llambda2', 'noise', 'regularization']
         for var in log_vars:
             if var in best_hyper_parameters:
                 best_hyper_parameters[var] = 10. ** best_hyper_parameters[var] 

@@ -161,8 +161,8 @@ class EchoStateNetwork(nn.Module):
 
         if self.feedback:
             preactivation += self.LinFeedback(output_pattern)
-        if self.noise:
-            preactivation += self.noise
+        #if self.noise:
+        #    preactivation += torch.normal(self.noise)
         update = self.activation_function(preactivation) + self.PyESNnoise * (self.external_noise - 0.5)
         next_state = self.leaking_rate * update + (1 - self.leaking_rate) * current_state
         return next_state
@@ -352,6 +352,7 @@ class EchoStateNetwork(nn.Module):
         except:
             if not X:
                 X = torch.ones(*y.shape)
+                orig_X = X.clone().detach()
 
 
         if not X is None:
@@ -411,7 +412,7 @@ class EchoStateNetwork(nn.Module):
                 #print("self.state", self.state)
                 #print("X", X)
                 #print("ones", torch.ones(*X.shape))
-                extended_states = torch.hstack((torch.ones(*X.shape), self.state, X))
+                extended_states = torch.hstack((self.state, X))
                 extended_states._name_ = "complete_data"
 
                 train_x = extended_states[burn_in:, :]
@@ -420,16 +421,17 @@ class EchoStateNetwork(nn.Module):
                 if not self.regularization:
                     print("no regularization")
                     pinv = torch.pinverse(train_x)
-                    weight = torch.matmul(pinv,
-                                          train_y )
+                    weight = torch.matmul(pinv, train_y)
                 elif self.l2_prop == 1:
                     #print("ridge regularizing")
+
+                    train_x = torch.hstack((torch.ones(train_x.shape[0],1), train_x))
                     
                     ridge_x = torch.matmul(train_x.T, train_x) + \
                                        self.regularization * torch.eye(train_x.shape[1], device = self.device)
                     ridge_y = torch.matmul(train_x.T, train_y)
                     ridge_x_inv = torch.pinverse(ridge_x)
-                    weight = ridge_x_inv @ridge_y
+                    weight = ridge_x_inv @ ridge_y
 
                     bias = weight[0]
                     weight = weight[1:]
@@ -437,23 +439,23 @@ class EchoStateNetwork(nn.Module):
                     #weight = torch.solve(ridge_y, ridge_x).solution
 
                 else:
-                    #this needs more work, but it is in progress.
-                    elastic_net_x = orig_X[burn_in:, :]
-                    gram_matrix = torch.matmul(elastic_net_x.T, elastic_net_x) 
+
+                    gram_matrix = torch.matmul(train_x.T, train_x) 
 
                     regr = ElasticNet(random_state=0, 
                                           alpha = self.regularization, 
                                           l1_ratio = 1-self.l2_prop,
                                           selection = "random",
                                           max_iter = 3000,
-                                          tol = 1e-2,
-                                          fit_intercept = True,
-                                          precompute = gram_matrix.numpy()
+                                          tol = 1e-3,
+                                          #precompute = gram_matrix.numpy(),
+                                          fit_intercept = True
                                           )
+                    print("train_x", train_x.shape, "_____________ train_y", train_y.shape)
                     regr.fit(train_x.numpy(), train_y.numpy())
 
                     weight = torch.tensor(regr.coef_, device = self.device)
-                    bias = torch.tensor(regr.coef_, device =self.device)
+                    bias = torch.tensor(regr.intercept_, device =self.device)
                 
                 self.LinOut.weight = nn.Parameter(weight.view(-1,1), requires_grad = False)
                 if type(bias) != type(None):
@@ -675,14 +677,17 @@ class EchoStateNetwork(nn.Module):
                                                 verbose = True)
             extended_state_spec = torch.cat([states[t+1,:], inputs[t+1, :]])
             #print("extended_state_spec", extended_state_spec.shape)
-            #print("self.LinOut.weight", extended_state_spec.shape)
-            outputs[t+1,:] = torch.dot(self.LinOut.weight.squeeze(),extended_state_spec.squeeze()) + self.LinOut.bias#torch.dot(self.LinOut.weight.squeeze(), extended_state_spec.squeeze()) + self.LinOut.bias#torch.dot(self.LinOut.weight, 
+            #print("self.LinOut.weight", self.LinOut.weight.shape)
+            #print("self.LinOut.bias", self.LinOut.bias.shape)
+            bias_tensor = torch.ones(*self.LinOut.weight.shape).squeeze()*self.LinOut.bias.item()
+            #print("Linout", self.LinOut.weight.shape)
+            #print("bias_tensor", bias_tensor.shape)
+            #print("extended_state_spec", extended_state_spec.shape)
+            outputs[t+1,:] = torch.dot(self.LinOut.weight.squeeze(),extended_state_spec.squeeze())
+            #print("outputs[t+1,:].shape", outputs[t+1,:].shape)
+            #print("bias_tensor", bias_tensor.shape)
+            outputs[t+1,:] = outputs[t+1,:] + float(self.LinOut.bias) #torch.dot(self.LinOut.weight.squeeze(), extended_state_spec.squeeze()) + self.LinOut.bias#torch.dot(self.LinOut.weight, 
 
-        # Denormalize predictions
-        #outputs = self.out_weights.T@outputs)#complete_data.T)#outputs=outputs[1:])
-        #y_predicted.view(-1, self.n_outputs)
-        #print("outputs", y_predicted.shape)
-        #outputs[1:] = outputs[1:] 
         return self.denormalize(outputs = outputs[1:]).view(-1, self.n_outputs) 
         try:
             return self.denormalize(outputs = outputs[1:]).view(-1, self.n_outputs) # 
