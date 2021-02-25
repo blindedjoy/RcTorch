@@ -431,8 +431,6 @@ class EchoStateNetworkCV:
 
         #interactive plotting for jupyter notebooks.
         self.interactive = interactive
-        if interactive:
-            self.fig, self.ax = pl.subplots(1,3, figsize = (16,4))
 
         self.learning_rate = learning_rate
         self.approximate_reservoir = approximate_reservoir
@@ -930,7 +928,9 @@ class EchoStateNetworkCV:
             RC.train(X = train_x, y = train_y,  burn_in=self.esn_burn_in, learning_rate = self.learning_rate)
 
             # Validation score
-            score, pred_ = RC.test(x=validate_x, y=validate_y, scoring_method='mse', steps_ahead = self.steps_ahead)
+            score, pred_ = RC.test( x = validate_x, y = validate_y, 
+                                    scoring_method = self.scoring_method, 
+                                    steps_ahead = self.steps_ahead)
             
             if self.count % self.batch_size == 0:
                 self.train_plot_update(pred_ = pred_, validate_y = validate_y, 
@@ -1004,6 +1004,9 @@ class EchoStateNetworkCV:
 
         """
         import torch.multiprocessing as mp
+
+        if self.interactive:
+            self.fig, self.ax = pl.subplots(1,3, figsize = (16,4))
         
         # Checks
         self.validate_data(y, x, self.verbose)
@@ -1102,6 +1105,8 @@ class EchoStateNetworkCV:
                 json.dump(best_arguments, output_file, indent=4)
         
         best_vals = X_turbo[torch.argmax(Y_turbo)]
+
+        self.X_turbo, self.Y_turbo =  X_turbo, Y_turbo
         
         denormed_ = self.denormalize_bounds(best_vals)
         

@@ -897,13 +897,13 @@ class EchoStateNetwork(nn.Module):
         elif method == 'nrmse':
             error = torch.sqrt(torch.mean(torch.square(errors))) / target.flatten().std()#ddof=1)
         elif method == 'tanh-nrmse':
-            nrmse = torch.sqrt(torch.mean(torch.square(errors))) / target.ravel().std(ddof=1)
+            nrmse = torch.sqrt(torch.mean(torch.square(errors))) / target.flatten().std(ddof=1)
             error = alpha * torch.tanh(nrmse / alpha)
         elif method == 'log':
             mse = torch.mean(torch.square(errors))
             error = torch.log(mse)
         elif method == 'log-tanh':
-            nrmse = torch.sqrt(torch.mean(torch.square(errors))) / target.ravel().std(ddof=1)
+            nrmse = torch.sqrt(torch.mean(torch.square(errors))) / target.flatten().std(ddof=1)
             error = torch.log(alpha * torch.tanh((1. / alpha) * nrmse))
         else:
             raise ValueError('Scoring method not recognized')
