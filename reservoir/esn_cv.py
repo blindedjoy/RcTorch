@@ -6,9 +6,10 @@ import math
 import multiprocessing
 import numpy as np
 from scipy.sparse import csr_matrix
-import torch.multiprocessing as mp
+import multiprocessing as mp #torch.
 import pylab as pl
 from IPython import display
+import torch.multiprocessing as mp
 
 from .esn import *
 #import pyDOE
@@ -49,6 +50,10 @@ def get_initial_points(dim, n_pts):
     return X_init
 
 def update_state(state, Y_next):
+    #hayden lines
+    #if Y_next.dim() == 0:
+    #    Y_next = float(Y_next) #.unsqueeze(dim = 1)
+    ####
     if max(Y_next) > state.best_value + 1e-3 * math.fabs(state.best_value):
         state.success_counter += 1
         state.failure_counter = 0
@@ -295,6 +300,37 @@ class ReservoirBuildingBlocks:
 
 __all__ = ['EchoStateNetworkCV']
 
+def execute_HRC(arguments, upper_error_limit = 10000):
+    #score, pred_ = self.define_tr_val() #just get the train and test...
+    #print("we're in!")
+
+    #assert 1 == 0, "made it" + str(arguments)
+
+    cv_samples, arguments, parameters, id_ = arguments
+
+    for i, sample in enumerate(cv_samples):
+
+        RC = EchoStateNetwork(**arguments["declaration_args"], **parameters, id_ = id_)
+
+        train_x, train_y, validate_x, validate_y = sample
+        
+        RC.train(X = train_x, y = train_y, **arguments["train_args"])
+
+        # Validation score
+        score, pred_, id_ = RC.test(x=validate_x, y = validate_y, **arguments["test_args"])
+
+        score = min(score, torch.tensor(upper_error_limit, device = arguments["device"]))
+
+        if torch.isnan(score):
+            score_ = torch.tensor(upper_error_limit, device = arguments["device"])
+            break
+
+        if not i:
+            score_ = score
+        else:
+            score_ += score
+
+    return score_/len(cv_samples), {"pred": pred_, "val_y" : validate_y}, id_
 
 class EchoStateNetworkCV:
     """A cross-validation object that automatically optimizes ESN hyperparameters using Bayesian optimization with
@@ -725,7 +761,7 @@ class EchoStateNetworkCV:
         #                                           validate_y[:, n].reshape(-1, 1), train_x, validate_x)
         #    scores_.append(score_)
         #print(scores_)
-        return train_x, train_y, validate_x, validate_y
+        return [train_x, train_y, validate_x, validate_y]
         
     def build_unq_dict_lst(self, lst1, lst2, key1 = "start_index", key2 = "random_seed"):
         dict_lst = []
@@ -826,7 +862,7 @@ class EchoStateNetworkCV:
 
         plt.legend()
     
-    def train_plot_update(self, pred_, validate_y, steps_displayed, elastic_losses, l2_prop):
+    def train_plot_update(self, pred_, validate_y, steps_displayed, elastic_losses = None):
         
         #plotting
         if self.interactive:
@@ -849,7 +885,7 @@ class EchoStateNetworkCV:
             #print(self.errorz)
             self.ax[0].plot(np.log(self.errorz), alpha = 0.2, color = "green", label = labels[1])
             self.ax[0].set_title("log error vs Bayes Opt. step")
-            self.ax[0].set_ylabel("log(mse)")
+            self.ax[0].set_ylabel(f"log({self.scoring_method})")
             self.ax[0].set_xlabel("Bayesian Optimization step")
             self.ax[0].legend()
             
@@ -857,6 +893,7 @@ class EchoStateNetworkCV:
             ######### Another idea is to have the middle plot do what ax[2] is doing and have the far right plot display the best guess yet.
 
             #self.my_loss_plot(ax = self.ax[1], pred = pred_2plot, valid = validate_y_2plot, start_loc = 1800)
+            """
             try:
                 if l2_prop != 1:
                     self.ax[1].plot(elastic_losses )#torch.log
@@ -868,6 +905,7 @@ class EchoStateNetworkCV:
                     self.ax[1].set_xlabel("time step")
             except:
                 pass
+            """
             #self.ax[1].set_ylim(self.y.min().item() - 0.1, self.y.max().item() )         
 
             #plot 3:
@@ -887,6 +925,9 @@ class EchoStateNetworkCV:
 
             display.clear_output(wait=True) 
             display.display(pl.gcf()) 
+
+    
+
     
     def HRC(self, parameters, backprop = False, plot_type = "error", *args): #Hayden's RC or Hillary lol
         """
@@ -895,64 +936,93 @@ class EchoStateNetworkCV:
         Arguments:
             parameterization
             steps_ahead
-
+        The probelem with this parallelized version is almost certainly the fact that when we send the parallel computation,
+        we don't get our results in any particular order. So what should we do?
+        The answer is quite obvious: send them in with id tags and return the id tags: 0, through .shape[0].
+        The resort on the backend.
         """
+        parameter_lst = []
+        for i in range(parameters.shape[0]):
+            parameter_lst.append(self.construct_arguments(parameters[i, :]))
         
         start = time.time()
 
-        #can be parrallelized
+        try:
+            res_args  = {"reservoir" : self.reservoir_matrices}
+            #arguments = {**arguments, **res_args}
+        except:
+            assert 1 == 0
+            print("failed to load")
+
+        declaration_args = {'activation_f' : self.activation_function,
+                            'backprop' : self.backprop,
+                            'model_type' : self.model_type,
+                            'input_weight_type' : self.input_weight_type, 
+                            'approximate_reservoir' : self.approximate_reservoir
+                            }
+        declaration_args["reservoir"] = None
+        train_args = {"burn_in" : self.esn_burn_in, "learning_rate" : self.learning_rate}
+        test_args = {"scoring_method" : self.scoring_method}
+
+        parallel_arguments = {"declaration_args": declaration_args, #"RC" : RC,
+                              "train_args": train_args,
+                              "test_args" : test_args,
+                              "device" : self.device
+                              }
+
+        cv_samples = [self.objective_sampler() for i in range(self.cv_samples)]
+
+
+        #it's easy... just ... give the cv_samples in a list and make the algorithm O(n) w.r.t. cv_samples.
+        #
+        data_args = []
+        count = 0
         for i in range(parameters.shape[0]):
 
-            arguments = self.construct_arguments(parameters)
-            
-            try:
-                res_args  = {"reservoir" : self.reservoir_matrices}
-                arguments = {**arguments, **res_args}
-            except:
-                assert 1 == 0
-                print("failed to load")
+            #CHANGE THIS LATER SO THAT WE INPUT THESE ARGUMENTS EVERY SINGLE RUN
+            data_args.append((cv_samples, parallel_arguments, parameter_lst[i], count))
+            count += 1
 
-            #print("arguments", arguments)
+        num_processes = parameters.shape[0]
+        Pool = multiprocessing.Pool(num_processes)
 
-            # Build network
-            RC = self.model(**arguments, activation_f = self.activation_function,
-                model_type = self.model_type,
-                input_weight_type = self.input_weight_type, approximate_reservoir = self.approximate_reservoir,
-                backprop = self.backprop)
-                # Distance_matrix = self.Distance_matrix)
-                # random_seed = random_seed) plot = False,
-                #obs_idx = self.obs_index, resp_idx = self.target_index,  
-
-            train_x, train_y, validate_x, validate_y = self.objective_sampler()
-            
-            RC.train(X = train_x, y = train_y,  burn_in=self.esn_burn_in, learning_rate = self.learning_rate)
-
-            # Validation score
-            score, pred_ = RC.test( x = validate_x, y = validate_y, 
-                                    scoring_method = self.scoring_method, 
-                                    steps_ahead = self.steps_ahead)
-            
-            if self.count % self.batch_size == 0:
-                self.train_plot_update(pred_ = pred_, validate_y = validate_y, 
-                    steps_displayed = pred_.shape[0], elastic_losses = RC.losses, l2_prop  = RC.l2_prop)
-            
-            #make the maximum value of the error 10000 to avoid inf.
-            score = min(score, torch.tensor(1000, device = self.device))
-
-            if torch.isnan(score):
-                score = torch.tensor(1000, device = self.device)
-            
-            ###### Confusing use of score and error here, fix later
-            if not i:
-                error = score
-            else:
-                error = torch.cat([error, score], dim = 0)
-                
-            self.errorz.append(score.type(torch.float32).detach())
+        #get the asynch object:
+        results = Pool.map(execute_HRC, data_args) #list(zip(*)))
         
+        Pool.close()
+        Pool.join()
+        
+        if len(results) > 1:
+
+            #resort the parallelized output and drop the ids
+            results = sorted(results, key=lambda x: x[2])
+
+            results = [(result[0], result[1]) for result in results]
+
+            scores, preds = list(zip(*results))
+
+        else:
+            results = [(result[0], result[1]) for result in results]
+            scores, preds = list(zip(*results)) 
+        error = np.mean(scores)
+        
+        for i, score in enumerate(scores):
+            #score = score.view(1,1)
+            if not i:
+                Scores_ = [score]
+            else:
+                Scores_.append(score)
+            self.errorz.append(score.type(torch.float32).detach())
+            
+        #if self.count % self.batch_size == 0:
+        self.train_plot_update(pred_ = preds[0]["pred"], validate_y = preds[0]["val_y"], 
+            steps_displayed = preds[0]["pred"].shape[0]) #l2_prop  = self.l2_prop) #elastic_losses = RC.losses, 
+
+        Scores_ = torch.tensor(Scores_, dtype = torch.float32, device = self.device).unsqueeze(-1)
+
         #print('success_tolerance', self.state.success_counter)
         #print('failure_tolerance', self.state.failure_counter)
-        score_str = 'iter ' + str(self.count) +': Score ' + f'{error.type(torch.float32).mean():.4f}'# +', log(\u03BC):' + f'{log_mu:.4f}' 
+        #score_str = 'iter ' + str(self.count) +': Score ' + f'{error.type(torch.float32).mean():.4f}'# +', log(\u03BC):' + f'{log_mu:.4f}' 
 
         """
         score_str += " seed " + str(random_seeds) + " n " + str(self.scores.shape[0])
@@ -977,7 +1047,8 @@ class EchoStateNetworkCV:
         stop = time.time()
         self.iteration_durations.append(stop - start)
         self.count += 1
-        return -error
+
+        return -Scores_
     
     
     
@@ -1003,7 +1074,7 @@ class EchoStateNetworkCV:
             The best parameters found during optimization
 
         """
-        import torch.multiprocessing as mp
+        
 
         if self.interactive:
             self.fig, self.ax = pl.subplots(1,3, figsize = (16,4))
@@ -1035,17 +1106,30 @@ class EchoStateNetworkCV:
                                 batch_size=self.batch_size, success_tolerance = self.success_tolerance)
         
         self.count = 1
-        X_turbo = get_initial_points(self.scaled_bounds.shape[1], self.initial_samples).to(device)
+
+        X_init = get_initial_points(self.scaled_bounds.shape[1], self.initial_samples).to(device)
         
-        #X_turbo.share_memory()
-        Y_turbo = torch.tensor(
-            [self.eval_objective(x.view(1,-1)) for x in X_turbo], dtype=dtype, device=device).unsqueeze(-1)
+        for i in range(X_init.shape[0] // self.batch_size):
+            print(i)
+            X_batch = X_init[ (i*self.batch_size) : ((i+1)*self.batch_size), : ]
+            Y_batch = self.eval_objective( X_batch ) 
+            if not i:
+                X_turbo = X_batch
+                Y_turbo = Y_batch 
+            else:
+                Y_turbo = torch.cat((Y_turbo, Y_batch), dim=0)
+                X_turbo = torch.cat((X_turbo, X_batch), dim=0)
+        
+            #X_turbo.share_memory()
+            #Y_turbo = torch.tensor(
+            #    [self.eval_objective(x.view(1,-1)) for x in X_turbo], dtype=dtype, device=device).unsqueeze(-1)
+        X_turbo = X_turbo.to(device)
         Y_turbo = Y_turbo.to(device)
         
         n_init = self.initial_samples
 
         #append the errorz to errorz_step
-        self.errorz_step += [max(self.errorz)] * n_init
+        self.errorz_step += [max(self.errorz)] * X_turbo.shape[0] #n_init
         
         self.count = 0
         # Run until TuRBO converges
@@ -1071,10 +1155,13 @@ class EchoStateNetworkCV:
             )
             X_next = X_next.to(device)
 
+            #assert 1 ==0, X_next
+
             #can be parallelized:
-            Y_next = torch.tensor(
-                                  [self.eval_objective(x.view(1,-1)) for x in X_next], 
-                                   dtype=dtype, device=device).unsqueeze(-1)
+            Y_next = self.eval_objective( X_next) #torch.tensor()#.unsqueeze(-1)
+                                    #[self.eval_objective(x.view(1,-1)) for x in X_next],
+            print('Y_next', Y_next)
+            print("self.state", self.state)
             # Update state
             self.state = update_state(state=self.state, Y_next=Y_next)
 
@@ -1114,7 +1201,7 @@ class EchoStateNetworkCV:
             denormed_ = denormalize_bounds(best_vals)
         except:
             print("FAIL")
-            
+
         #####Bad temporary code to change it back into a dictionary
         denormed_free_parameters = list(zip(self.free_parameters, denormed_))
         denormed_free_parameters = dict([ (item[0], item[1].item()) for item in denormed_free_parameters])

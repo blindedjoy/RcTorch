@@ -84,7 +84,7 @@ class EchoStateNetwork(nn.Module):
                  bias = "uniform", connectivity = 0.1, random_state = 123,
                  obs_idx = None, resp_idx = None,
                  reservoir = None, model_type = "uniform", input_weight_type = None, approximate_reservoir = True,
-                 device = device, epochs = 7, PyESNnoise=0.001, l2_prop = 1, reg_lr = 10**-4):
+                 device = device, epochs = 7, PyESNnoise=0.001, l2_prop = 1, reg_lr = 10**-4, id_ = None):
         super().__init__()
         
         self.l2_prop = l2_prop 
@@ -112,6 +112,7 @@ class EchoStateNetwork(nn.Module):
         self.n_nodes = n_nodes
         self.noise = noise #torch.rand(self.n_nodes).view(-1,1) if noise else None
 
+        self.id_ = id_
         
         self.spectral_radius = spectral_radius
         self.regularization = regularization
@@ -156,7 +157,22 @@ class EchoStateNetwork(nn.Module):
         """
         # generator = self.random_state, device = self.device)  
         
-        
+        #assert 1 == 0, f'bias {self.bias_.shape}'
+        #assert 2 == 0, f'linIn, {self.LinIn(input_).shape},'
+        #try:
+        #    self.LinIn(input_)
+        #except:
+        #    assert 2 == 0, f'linIn, {self.LinIn(input_).shape},'
+        #try:
+        #    self.LinRes(current_state)
+        #except:
+        #    assert 2 == 0, f'linIn, {self.LinRes(current_state).shape},'
+
+
+        #assert 3 == 0, f'LinRes {self.LinRes(current_state).shape},'
+        #assert 4 == 0, f'LinRes {self.LinFeedback(output_pattern).shape}'
+        #assert 1 == 0, f'LinRes {self.LinIn(input_).shape} + {self.bias_.shape} + {self.LinRes(current_state).shape}'
+
         preactivation = self.LinIn(input_) + self.bias_ + self.LinRes(current_state)
 
         if self.feedback:
@@ -282,17 +298,17 @@ class EchoStateNetwork(nn.Module):
             #uniform bias can be seen as means of normal random variables.
             if self.bias == "uniform":
                 #random uniform distributed bias
-                bias = torch.rand(n, m, generator = self.random_state, device = self.device)
+                bias = torch.rand(n, 1, generator = self.random_state, device = self.device)
                 bias = bias * 2 - 1
             elif type(self.bias) in [type(1), type(1.5)]:
-                bias = bias = torch.zeros(n, m, device = self.device)
+                bias = bias = torch.zeros(n, 1, device = self.device)
                 bias = bias + self.bias
 
                 #bias += torch.normal(mean = 0, std = self.noise, size = (n, m))
 
             #bias = torch.ones(n, m, device = self.device) * self.bias
             if self.noise:
-                bias += torch.normal(0, self.noise, device = self.device, size = (n,m))
+                bias += torch.normal(0, self.noise, device = self.device, size = (n,1))
             
             # howdo we add in the noise?
             self.bias_ = bias
@@ -300,7 +316,7 @@ class EchoStateNetwork(nn.Module):
                 self.bias_ = self.bias_.squeeze()
 
             if self.feedback:
-                feedback_weights = torch.rand(self.n_nodes, 1, device = self.device, generator = self.random_state) * 2 - 1
+                feedback_weights = torch.rand(self.n_nodes, self.n_outputs, device = self.device, generator = self.random_state) * 2 - 1
                 feedback_weights *= self.feedback_scaling
                 feedback_weights = feedback_weights.view(self.n_nodes, -1)
                 feedback_weights = nn.Parameter(feedback_weights, requires_grad = False) 
@@ -364,7 +380,8 @@ class EchoStateNetwork(nn.Module):
                 self._input_stds = None
                 self._input_means = None
                 
-            self.n_inputs = (X.shape[1])
+        self.n_inputs = X.shape[1]
+        self.n_outputs = y.shape[1]
         
 
         self.lastoutput = y[-1, :]
@@ -375,10 +392,10 @@ class EchoStateNetwork(nn.Module):
         start_index = 1 if self.feedback else 0 
         rows = y.shape[0] - start_index
 
-        self.LinIn = nn.Linear(self.n_nodes, 1, bias = False).to(device)
-        self.LinFeedback = nn.Linear(self.n_nodes, 1, bias = False).to(device)
+        self.LinIn = nn.Linear(self.n_nodes, self.n_inputs, bias = False).to(device)
+        self.LinFeedback = nn.Linear(self.n_nodes, self.n_inputs, bias = False).to(device)
         self.LinIn.weight, self.LinFeedback.weight = self.set_Win()
-        self.LinOut = nn.Linear(self.n_nodes + 1, y.shape[1]).to(device)
+        self.LinOut = nn.Linear(self.n_nodes + 1, self.n_outputs).to(device)
         if not self.classification:
             self.out_activation = self.LinOut
         
@@ -405,7 +422,7 @@ class EchoStateNetwork(nn.Module):
 
                 #run through the states.
                 for t in range(1, X.shape[0]):
-                    self.state[t, :] = self.forward(t, input_ = X[t].T,
+                    self.state[t, :] = self.forward(t, input_ = X[t, :].T,
                                                        current_state = self.state[t-1,:], 
                                                        output_pattern = y[t-1]).squeeze()
 
@@ -424,8 +441,8 @@ class EchoStateNetwork(nn.Module):
                     weight = torch.matmul(pinv, train_y)
                 elif self.l2_prop == 1:
                     #print("ridge regularizing")
-
-                    train_x = torch.hstack((torch.ones(train_x.shape[0],1), train_x))
+                    ones_col = torch.ones(train_x.shape[0], 1)
+                    train_x = torch.hstack((ones_col, train_x))
                     
                     ridge_x = torch.matmul(train_x.T, train_x) + \
                                        self.regularization * torch.eye(train_x.shape[1], device = self.device)
@@ -610,7 +627,7 @@ class EchoStateNetwork(nn.Module):
             y_predicted = self.predict_stepwise(y, x, steps_ahead=steps_ahead, y_start=y_start)[:final_t,:]
         
         # Return error
-        return self.error(y_predicted, y, scoring_method, alpha=alpha), y_predicted
+        return self.error(y_predicted, y, scoring_method, alpha=alpha), y_predicted, self.id_
 
 
     def predict(self, n_steps, pure_prediction = True, x=None, y_start=None, continuation = True):
@@ -638,7 +655,7 @@ class EchoStateNetwork(nn.Module):
             raise ValueError('Error: ESN not trained yet')
         
         # Normalize the inputs (like was done in train)
-        if not x is None and self._input_means:
+        if not x is None and type(self._input_means) != type(None):
             x = self.scale(inputs=x)
 
         
@@ -662,7 +679,9 @@ class EchoStateNetwork(nn.Module):
             lastinput = np.zeros(self.n_inputs)
             lastoutput = np.zeros(self.n_outputs)
 
-        inputs = torch.vstack([lastinput, x]).view(-1,1)
+        inputs = torch.vstack([lastinput, x]).view(-1, x.shape[1])
+
+        print("inputs", inputs.shape)
 
         states = torch.zeros((n_samples + 1, self.n_nodes))
         states[0,:] = laststate
@@ -671,7 +690,7 @@ class EchoStateNetwork(nn.Module):
             [lastoutput, torch.zeros((n_samples, self.n_outputs))])
 
         for t in range(n_samples):
-            states[t + 1, :] = self.forward(t, input_ = inputs[t + 1], 
+            states[t + 1, :] = self.forward(t, input_ = inputs[t + 1, :], 
                                                 current_state = states[t, :], 
                                                 output_pattern = outputs[t, :], 
                                                 verbose = True)
