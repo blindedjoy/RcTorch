@@ -44,12 +44,6 @@ from sklearn.linear_model import ElasticNet
 #pytorch elastic net regularization:
 #https://github.com/jayanthkoushik/torch-gel
 
-dtype=torch.float 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dtype = torch.double
-print("device:", device)
-
-torch.autograd.set_detect_anomaly(True)
 
 def printn(param: torch.nn.parameter):
     print(param._name_ + "\t \t", param.shape)
@@ -61,20 +55,18 @@ def sinsq(x):
     return torch.square(torch.sin(x))
 
 def printc(string_, color_, end = '\n') :
-      print(colorz[color_] + string_ + colorz["endc"] , end = end)
-
-colorz = {
-  "header" : '\033[95m',
-  "blue" : '\033[94m',
-  'cyan' : '\033[96m',
-  'green' : '\033[92m',
-  'warning' : '\033[93m',
-  'fail' : '\033[91m',
-  'endc' : '\033[0m',
-   'bold' :'\033[1m',
-   "underline" : '\033[4m'
-}
-
+    colorz = {
+          "header" : '\033[95m',
+          "blue" : '\033[94m',
+          'cyan' : '\033[96m',
+          'green' : '\033[92m',
+          'warning' : '\033[93m',
+          'fail' : '\033[91m',
+          'endc' : '\033[0m',
+           'bold' :'\033[1m',
+           "underline" : '\033[4m'
+        }
+    print(colorz[color_] + string_ + colorz["endc"] , end = end)
 
 
 class EchoStateNetwork(nn.Module):
@@ -83,8 +75,8 @@ class EchoStateNetwork(nn.Module):
                  criterion = nn.NLLLoss(), classification = False, output_size = 50, feedback_scaling = 0.5,
                  bias = "uniform", connectivity = 0.1, random_state = 123,
                  obs_idx = None, resp_idx = None,
-                 reservoir = None, model_type = "uniform", input_weight_type = None, approximate_reservoir = True,
-                 device = device, epochs = 7, PyESNnoise=0.001, l2_prop = 1, reg_lr = 10**-4, id_ = None):
+                 reservoir = None, model_type = "uniform", input_weight_type = None, approximate_reservoir = False,
+                 device = None, epochs = 7, PyESNnoise=0.001, l2_prop = 1, reg_lr = 10**-4, id_ = None):
         super().__init__()
         
         self.l2_prop = l2_prop 
@@ -92,13 +84,17 @@ class EchoStateNetwork(nn.Module):
 
         self.epochs = epochs
 
+        if not device:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = device
+
         #faster, approximate implimentation
         self.approximate_reservoir = approximate_reservoir
         self.reservoir = reservoir
         
         # backprop, feedback, random state and device ('cuda' or not)
         self.backprop = backprop
-        self.device = torch.device(device)
         self.feedback = feedback
         self.random_state = torch.Generator(device=self.device).manual_seed(random_state)
         self.tensor_args = {"device": self.device, "generator" : self.random_state}
@@ -120,7 +116,7 @@ class EchoStateNetwork(nn.Module):
         #noise from pyesn — unlike my implimentation it happens outside the activation function. 
         #TBD if this actually can improve the RC.
         self.PyESNnoise = 0.001
-        self.external_noise = torch.rand(self.n_nodes)
+        self.external_noise = torch.rand(self.n_nodes, device = self.device)
 
         #activation
         self.activation_function = activation_f
@@ -143,6 +139,17 @@ class EchoStateNetwork(nn.Module):
         if scaler == "standardize":
             self.scale   = self.normalize
             self.descale = self.denormalize
+        colorz = {
+          "header" : '\033[95m',
+          "blue" : '\033[94m',
+          'cyan' : '\033[96m',
+          'green' : '\033[92m',
+          'warning' : '\033[93m',
+          'fail' : '\033[91m',
+          'endc' : '\033[0m',
+           'bold' :'\033[1m',
+           "underline" : '\033[4m'
+        }
 
     def plot_reservoir(self):
         sns.histplot(self.weights.numpy().view(-1,))
@@ -156,22 +163,8 @@ class EchoStateNetwork(nn.Module):
             output_pattern: the output pattern at timestep t.
         """
         # generator = self.random_state, device = self.device)  
-        
-        #assert 1 == 0, f'bias {self.bias_.shape}'
-        #assert 2 == 0, f'linIn, {self.LinIn(input_).shape},'
-        #try:
-        #    self.LinIn(input_)
-        #except:
-        #    assert 2 == 0, f'linIn, {self.LinIn(input_).shape},'
-        #try:
-        #    self.LinRes(current_state)
-        #except:
-        #    assert 2 == 0, f'linIn, {self.LinRes(current_state).shape},'
-
-
         #assert 3 == 0, f'LinRes {self.LinRes(current_state).shape},'
-        #assert 4 == 0, f'LinRes {self.LinFeedback(output_pattern).shape}'
-        #assert 1 == 0, f'LinRes {self.LinIn(input_).shape} + {self.bias_.shape} + {self.LinRes(current_state).shape}'
+        
 
         preactivation = self.LinIn(input_) + self.bias_ + self.LinRes(current_state)
 
@@ -179,6 +172,7 @@ class EchoStateNetwork(nn.Module):
             preactivation += self.LinFeedback(output_pattern)
         #if self.noise:
         #    preactivation += torch.normal(self.noise)
+
         update = self.activation_function(preactivation) + self.PyESNnoise * (self.external_noise - 0.5)
         next_state = self.leaking_rate * update + (1 - self.leaking_rate) * current_state
         return next_state
@@ -214,18 +208,23 @@ class EchoStateNetwork(nn.Module):
                 #self.weights = csc_matrix(self.weights)
             else:
                 #print("LOADING MATRIX", load_failed)
-                if self.approximate_reservoir:
-                    try:
-                        self.weights = self.reservoir.get_approx_preRes(self.connectivity, i).to(device)
-                        #printc("reservoir successfully loaded (" + str(self.weights.shape) , 'green') 
-                    except:
-                        if not i:
-                            printc("approx reservoir " + str(i) + " failed to load ...regenerating...", 'fail')
-                        #skip to the next iteration of the loop
-                        if i > self.reservoir.number_of_preloaded_sparse_sets:
-                            load_failed = 1
-                            printc("All preloaded reservoirs Nilpotent, generating random reservoirs, connectivity =" + str(round(self.connectivity,8)) + '...regenerating', 'fail')
-                        continue
+                try:
+                    if self.approximate_reservoir:
+                        self.weights = self.reservoir.get_approx_preRes(self.connectivity, i).to(self.device)
+                    else:
+                        self.weights = self.reservoir.reservoir_pre_weights < self.connectivity
+                        self.weights *= self.reservoir.accept
+                        self.weights = self.weights #.to(device)
+                    #printc("reservoir successfully loaded (" + str(self.weights.shape) , 'green') 
+                except:
+                    assert 1 == 0
+                    if not i:
+                        printc("approx reservoir " + str(i) + " failed to load ...regenerating...", 'fail')
+                    #skip to the next iteration of the loop
+                    if i > self.reservoir.number_of_preloaded_sparse_sets:
+                        load_failed = 1
+                        printc("All preloaded reservoirs Nilpotent, generating random reservoirs, connectivity =" + str(round(self.connectivity,8)) + '...regenerating', 'fail')
+                    continue
                 else:
                     assert 1 == 0, "TODO, case not yet handled."
              
@@ -248,7 +247,7 @@ class EchoStateNetwork(nn.Module):
         self.LinRes.weight = self.weights
         
         if load_failed == 1 or not self.reservoir:
-            self.state = torch.zeros(1, self.n_nodes, device=torch.device(device))
+            self.state = torch.zeros(1, self.n_nodes, device=torch.device(self.device))
         else:
             self.state = self.reservoir.state
 
@@ -278,10 +277,11 @@ class EchoStateNetwork(nn.Module):
                 #bias matrix
 
                 #feedback weights
+                assert 1 ==0
                 
             else:
                 
-                in_weights = self.reservoir.in_weights  #+ self.noise * self.reservoir.noise_z One possibility is to add noise here, another is after activation.
+                in_weights = self.reservoir.in_weights #.to(self.device)  #+ self.noise * self.reservoir.noise_z One possibility is to add noise here, another is after activation.
                 
                 ##### Later for speed re-add the feedback weights here.
 
@@ -323,8 +323,7 @@ class EchoStateNetwork(nn.Module):
             else:
                 feedback_weights = None
    
-        in_weights = nn.Parameter(in_weights, requires_grad = False) #.to(self.device)
-        #.to(self.device)
+        in_weights = nn.Parameter(in_weights, requires_grad = False)
         #in_weights._name_ = "in_weights"
 
         return (in_weights, feedback_weights)
@@ -367,9 +366,8 @@ class EchoStateNetwork(nn.Module):
             orig_X = X.clone().detach()
         except:
             if not X:
-                X = torch.ones(*y.shape)
+                X = torch.ones(*y.shape, device = self.device)
                 orig_X = X.clone().detach()
-
 
         if not X is None:
 
@@ -392,10 +390,10 @@ class EchoStateNetwork(nn.Module):
         start_index = 1 if self.feedback else 0 
         rows = y.shape[0] - start_index
 
-        self.LinIn = nn.Linear(self.n_nodes, self.n_inputs, bias = False).to(device)
-        self.LinFeedback = nn.Linear(self.n_nodes, self.n_inputs, bias = False).to(device)
+        self.LinIn = nn.Linear(self.n_nodes, self.n_inputs, bias = False)
+        self.LinFeedback = nn.Linear(self.n_nodes, self.n_inputs, bias = False)
         self.LinIn.weight, self.LinFeedback.weight = self.set_Win()
-        self.LinOut = nn.Linear(self.n_nodes + 1, self.n_outputs).to(device)
+        self.LinOut = nn.Linear(self.n_nodes + 1, self.n_outputs)
         if not self.classification:
             self.out_activation = self.LinOut
         
@@ -441,7 +439,7 @@ class EchoStateNetwork(nn.Module):
                     weight = torch.matmul(pinv, train_y)
                 elif self.l2_prop == 1:
                     #print("ridge regularizing")
-                    ones_col = torch.ones(train_x.shape[0], 1)
+                    ones_col = torch.ones(train_x.shape[0], 1, device = self.device)
                     train_x = torch.hstack((ones_col, train_x))
                     
                     ridge_x = torch.matmul(train_x.T, train_x) + \
@@ -562,7 +560,7 @@ class EchoStateNetwork(nn.Module):
         # Storage for transformed variables
         transformed = []
         if not inputs is None:
-            #inputs = inputs.to(device)
+
             if keep:
                 # Store for denormalization
                 self._input_means = inputs.mean(axis=0)
@@ -570,12 +568,8 @@ class EchoStateNetwork(nn.Module):
 
             # Transform
             transformed.append((inputs - self._input_means) / self._input_stds)
-            
-            #self._input_means = self._input_means.to(device)
-            #self._input_stds  = self._input_stds.to(device)
 
         if not outputs is None:
-            #outputs = outputs.to(device)
             if keep:
                 # Store for denormalization
                 self._output_means = outputs.mean(axis=0)
@@ -584,8 +578,8 @@ class EchoStateNetwork(nn.Module):
             # Transform
             transformed.append((outputs - self._output_means) / self._output_stds)
             
-            self._output_means = self._output_means.to(device)
-            self._output_stds = self._output_stds.to(device)
+            self._output_means = self._output_means
+            self._output_stds = self._output_stds
         # Syntactic sugar
         return tuple(transformed) if len(transformed) > 1 else transformed[0]
 
@@ -614,7 +608,8 @@ class EchoStateNetwork(nn.Module):
 
         """
         self.steps_ahead = steps_ahead
-        y = y.to(device)
+        if y.device != self.device:
+            y = y.to(self.device)
         
         # Run prediction
         final_t =y.shape[0]
@@ -630,7 +625,7 @@ class EchoStateNetwork(nn.Module):
         return self.error(y_predicted, y, scoring_method, alpha=alpha), y_predicted, self.id_
 
 
-    def predict(self, n_steps, pure_prediction = True, x=None, y_start=None, continuation = True):
+    def predict(self, n_steps, x=None, y_start=None, continuation = True):
         """Predicts n values in advance.
 
         Prediction starts from the last state generated in training.
@@ -658,12 +653,14 @@ class EchoStateNetwork(nn.Module):
         if not x is None and type(self._input_means) != type(None):
             x = self.scale(inputs=x)
 
+        dev = {"device" : self.device, "dtype" : torch.float32}
+
         
         # Set parameters
         if self.LinOut.weight.shape[0] == 1:
-            y_predicted = torch.zeros((n_steps,), dtype=torch.float32).to(device)
+            y_predicted = torch.zeros( (n_steps,), **dev)
         else:
-            y_predicted = torch.zeros((n_steps, self.LinOut.weight.shape[0]), dtype=torch.float32).to(device)
+            y_predicted = torch.zeros( (n_steps, self.LinOut.weight.shape[0]), **dev)
 
         n_samples = x.shape[0]
 
@@ -675,19 +672,19 @@ class EchoStateNetwork(nn.Module):
             lastinput = self.lastinput
             lastoutput = self.lastoutput
         else:
-            laststate = np.zeros(self.n_nodes)
-            lastinput = np.zeros(self.n_inputs)
-            lastoutput = np.zeros(self.n_outputs)
+            laststate = np.zeros(self.n_nodes, **dev)
+            lastinput = np.zeros(self.n_inputs, **dev)
+            lastoutput = np.zeros(self.n_outputs, **dev)
 
         inputs = torch.vstack([lastinput, x]).view(-1, x.shape[1])
 
         print("inputs", inputs.shape)
 
-        states = torch.zeros((n_samples + 1, self.n_nodes))
+        states = torch.zeros((n_samples + 1, self.n_nodes), **dev)
         states[0,:] = laststate
 
         outputs = torch.vstack(
-            [lastoutput, torch.zeros((n_samples, self.n_outputs))])
+            [lastoutput, torch.zeros((n_samples, self.n_outputs), **dev)])
 
         for t in range(n_samples):
             states[t + 1, :] = self.forward(t, input_ = inputs[t + 1, :], 
@@ -772,7 +769,7 @@ class EchoStateNetwork(nn.Module):
         # Get last states
         previous_y = self.y_last
         if not y_start is None:
-            previous_y = self.scale(outputs=y_start)[0]#.to(device)
+            previous_y = self.scale(outputs=y_start)[0]
 
         # Initialize state from last availble in train
         current_state = self.state[-1]

@@ -3,23 +3,15 @@ import copy
 from dataclasses import dataclass
 import json
 import math
-import multiprocessing
 import numpy as np
 from scipy.sparse import csr_matrix
 import multiprocessing as mp #torch.
 import pylab as pl
 from IPython import display
-import torch.multiprocessing as mp
 
 from .esn import *
-#import pyDOE
-#
-#from .scr import *
-#from .detail.robustgpmodel import *
-#from .detail.esn_bo import *
-#import GPy
-#import GPyOpt
 
+from copy import deepcopy
 
 
 from scipy.sparse import csc_matrix
@@ -44,12 +36,12 @@ class TurboState:
             max([4.0 / self.batch_size, float(self.dim) / self.batch_size])
         )
 
-def get_initial_points(dim, n_pts):
+def get_initial_points(dim, n_pts, device, dtype):
     sobol = SobolEngine(dimension=dim, scramble=True)
     X_init = sobol.draw(n=n_pts).to(dtype=dtype, device=device)
     return X_init
 
-def update_state(state, Y_next):
+def update_state(state, Y_next, dtype):
     #hayden lines
     #if Y_next.dim() == 0:
     #    Y_next = float(Y_next) #.unsqueeze(dim = 1)
@@ -82,7 +74,10 @@ def generate_batch(
     n_candidates=None,  # Number of candidates for Thompson sampling
     num_restarts=10,
     raw_samples=512,
-    acqf="ts",  # "ei" or "ts"
+    acqf="ts",  # "ei" or "ts",
+    dtype = torch.float32,
+    device = None
+
 ):
     assert acqf in ("ts", "ei")
     assert X.min() >= 0.0 and X.max() <= 1.0 and torch.all(torch.isfinite(Y))
@@ -149,7 +144,7 @@ class SparseBooklet:
 class GlobalSparseLibrary:
 
     def __init__(self, lb = -5, ub = 0, n_nodes = 1000, precision = None, 
-                 flip_the_script = False, device = device):
+                 flip_the_script = False):
         self.lb = lb
         self.ub = ub
         self.n_nodes_ = n_nodes
@@ -208,31 +203,39 @@ class ReservoirBuildingBlocks:
         n_inputs: the number of observers in the case of a block experiment, the size of the output in the case of a pure prediction where teacher forcing is used.
 
     """
-    def __init__(self, model_type, input_weight_type, random_seed, n_nodes, n_inputs = None, Distance_matrix = None,
-                 device = device):
+    def __init__(self, model_type, input_weight_type, random_seed, n_nodes, n_inputs = None, Distance_matrix = None, sparse = False):
         #print("INITIALING RESERVOIR")
 
         #initialize attributes
         self.device = "cpu"
-        self.random_state = torch.Generator(device = self.device).manual_seed(random_seed)
-        
-        self.tensorArgs = {"device" : self.device, "generator": self.random_state}
+        self.sparse = sparse
+        self.random_seed = random_seed
+        self.tensorArgs = {"device" : self.device}
         
         self.input_weight_type_ = input_weight_type
         self.model_type_ = model_type
         self.n_inputs_ = n_inputs
-        self.n_nodes_ = n_nodes
+        n = self.n_nodes_ = n_nodes
         self.state = torch.zeros(1, self.n_nodes_, device = self.device)
+
+        if self.sparse:
         
-        if model_type == "random":
-            self.gen_ran_res_params()
-            self.gen_sparse_accept_dict()
+            if model_type == "random":
+                self.gen_ran_res_params()
+                self.gen_sparse_accept_dict()
+                assert 1 ==0
+        else:
+            random_state = torch.Generator(device = self.device).manual_seed(random_seed)
+            self.accept = torch.rand(n, n, generator = random_state, device = self.device) 
+            self.reservoir_pre_weights = torch.rand(n, n, generator = random_state, device = self.device) * 2 -1
+
 
     def gen_ran_res_params(self):
-        
+
+        gen = torch.Generator(device = self.device).manual_seed(self.random_seed)
         n = self.n_nodes_
-        self.accept = torch.rand(n, n, **self.tensorArgs)
-        self.reservoir_pre_weights = torch.rand(n, n, **self.tensorArgs) * 2 - 1
+        self.accept = torch.rand(n, n, **self.tensorArgs, generator = gen)
+        self.reservoir_pre_weights = torch.rand(n, n, **self.tensorArgs, generator = gen) * 2 - 1
 
     def gen_sparse_accept_dict(self, reservoir_seeds = [123, 999], precision = 1000):
         """
@@ -270,16 +273,17 @@ class ReservoirBuildingBlocks:
 
     def gen_in_weights(self):
 
+        gen = torch.Generator(device = self.device).manual_seed(self.random_seed)
         n, m = self.n_nodes_, self.n_inputs_
         in_w_shape_ = (n, m)
         print('m,n', m,n)
 
         #at the moment all input weight matrices use uniform bias.
-        self.bias = torch.rand( n, 1, generator = self.random_state, device = self.device) * 2 - 1
+        self.bias = torch.rand( n, 1, generator = gen, device = self.device) * 2 - 1
 
         #weights
         if self.input_weight_type_ == "uniform":
-            self.in_weights = torch.rand((n,m), generator = self.random_state, device = self.device)
+            self.in_weights = torch.rand((n,m), generator = gen, device = self.device)
             self.in_weights = self.in_weights * 2 - 1
             print('in_weights', self.in_weights.shape)
 
@@ -292,45 +296,69 @@ class ReservoirBuildingBlocks:
             self.sign = np.concatenate((sign1, sign2), axis = 1)
 
         #regularization
-        self.feedback_weights = torch.rand(n, 1, **self.tensorArgs) * 2 - 1
+        self.feedback_weights = torch.rand(n, 1, **self.tensorArgs, generator = gen) * 2 - 1
 
         #regularization
-        self.noise_z = torch.normal(0, 1, size = (n, m), **self.tensorArgs)
+        self.noise_z = torch.normal(0, 1, size = (n, m), **self.tensorArgs, generator = gen)
 
 
 __all__ = ['EchoStateNetworkCV']
 
 def execute_HRC(arguments, upper_error_limit = 10000):
+    #later call define_tr_val from within this function for speedup.
+
+
     #score, pred_ = self.define_tr_val() #just get the train and test...
-    #print("we're in!")
+    #assert 1 == 0, "made it" + str(parallel_arguments)
+    cv_samples, parallel_arguments, parameters, id_ = arguments
+    device = parallel_arguments["device"]
 
-    #assert 1 == 0, "made it" + str(arguments)
 
-    cv_samples, arguments, parameters, id_ = arguments
+    #move specific arguments to the gpu.
+    cv_samples_ = []
+    for i, cv_sample in enumerate(cv_samples):
+        if  cv_sample["tr_x"].device != device:
+            train_x, train_y = cv_sample["tr_x"].to(device), cv_sample["tr_y"].to(device)
+            validate_x, validate_y = cv_sample["val_x"].to(device), cv_sample["val_y"].to(device)
+        else:
+            #consider not sending the cv_sample["x"] if it's a pure prediction.
+            train_x, train_y = cv_sample["tr_x"], cv_sample["tr_y"]
+            validate_x, validate_y = cv_sample["val_x"], cv_sample["val_y"]
+        cv_samples_.append((train_x, train_y, validate_x, validate_y))
 
-    for i, sample in enumerate(cv_samples):
+    #now move the input weights and the reservoir arguments to the gpu.
+    reservoir = deepcopy(parallel_arguments["declaration_args"]["reservoir"])
+    reservoir.in_weights = reservoir.in_weights.to(device)
+    reservoir.accept = reservoir.accept.to(device)
+    reservoir.reservoir_pre_weights = reservoir.reservoir_pre_weights.to(device)
 
-        RC = EchoStateNetwork(**arguments["declaration_args"], **parameters, id_ = id_)
+    del parallel_arguments["declaration_args"]["reservoir"]
 
-        train_x, train_y, validate_x, validate_y = sample
+
+    RC = EchoStateNetwork(**parallel_arguments["declaration_args"], reservoir = reservoir, **parameters, id_ = id_)
+    
+    for i, cv_sample in enumerate(cv_samples_):
+
+        train_x, train_y, validate_x, validate_y = cv_sample
         
-        RC.train(X = train_x, y = train_y, **arguments["train_args"])
+        RC.train(X = train_x, y = train_y, **parallel_arguments["train_args"])
 
         # Validation score
-        score, pred_, id_ = RC.test(x=validate_x, y = validate_y, **arguments["test_args"])
+        score, pred_, id_ = RC.test(x=validate_x, y= validate_y, **parallel_arguments["test_args"])
 
-        score = min(score, torch.tensor(upper_error_limit, device = arguments["device"]))
+        score = min(score, torch.tensor(upper_error_limit, device = device))
 
         if torch.isnan(score):
-            score_ = torch.tensor(upper_error_limit, device = arguments["device"])
+            score_ = torch.tensor(upper_error_limit, device = device)
             break
 
         if not i:
             score_ = score
         else:
             score_ += score
+    score_mu = score_/len(cv_samples)
 
-    return score_/len(cv_samples), {"pred": pred_, "val_y" : validate_y}, id_
+    return score_mu.to("cpu"), {"pred": pred_.to("cpu"), "val_y" : validate_y.to("cpu")}, id_
 
 class EchoStateNetworkCV:
     """A cross-validation object that automatically optimizes ESN hyperparameters using Bayesian optimization with
@@ -441,21 +469,24 @@ class EchoStateNetworkCV:
                  scoring_method='nrmse', esn_burn_in=0, random_seed=None, esn_feedback=None, 
                  verbose=True, model_type = "random", activation_function = nn.Tanh(), 
                  input_weight_type = "uniform", backprop = False, interactive = False, 
-                 approximate_reservoir = True, failure_tolerance = 1, length_min = None, 
-                 device = device, learning_rate = 0.005, success_tolerance = 3):
+                 approximate_reservoir = False, failure_tolerance = 1, length_min = None, 
+                 device = None, learning_rate = 0.005, success_tolerance = 3, dtype = torch.float32):
         
-        print("FEEDBACK:", esn_feedback, ", device:", device)
-
         #### uncompleted tasks:
         #1) upgrade to multiple acquisition functions.
         #self.acquisition_type = acquisition_type
 
         ######
-        
-        self.device = torch.device(device)
-        #unknown: utility:
+
         if 'cuda' in str(device):
             torch.cuda.empty_cache()
+        if not device:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = device
+        self.dtype = dtype
+
+        print("FEEDBACK:", esn_feedback, ", device:", device)
 
         #turbo variables
         self.backprop = backprop
@@ -572,7 +603,7 @@ class EchoStateNetworkCV:
         
         scaled_bounds = torch.cat([torch.zeros(1,n_hyperparams, device = self.device), 
                                    torch.ones(1, n_hyperparams, device = self.device)], 0)
-        return scaled_bounds, torch.tensor(scalings, device = self.device), torch.tensor(intercepts, device = device) #torch.adjustment required
+        return scaled_bounds, torch.tensor(scalings, device = self.device), torch.tensor(intercepts, device = self.device) #torch.adjustment required
 
     def denormalize_bounds(self, normalized_arguments):
         """Denormalize arguments to feed into model.
@@ -748,20 +779,7 @@ class EchoStateNetworkCV:
             train_x = None
             validate_x = None
 
-        # Loop through series and score result
-        #scores_ = []
-        ###PARRALLEL LINES:
-        #score_ = self.objective_function(self.parameters, train_y, validate_y, train_x, validate_x, random_seed=random_seed)
-        #return([score_])
-        ### Lines of unknown utility
-        
-        #scores_.append(score_)
-        #for n in range(self.n_series):
-        #    score_ = self.objective_function(self.parameters, train_y[:, n].reshape(-1, 1),
-        #                                           validate_y[:, n].reshape(-1, 1), train_x, validate_x)
-        #    scores_.append(score_)
-        #print(scores_)
-        return [train_x, train_y, validate_x, validate_y]
+        return {"tr_x" : train_x, "tr_y": train_y, "val_x": validate_x, "val_y" : validate_y }
         
     def build_unq_dict_lst(self, lst1, lst2, key1 = "start_index", key2 = "random_seed"):
         dict_lst = []
@@ -814,7 +832,7 @@ class EchoStateNetworkCV:
         start_indices = [index_tensor.detach() for index_tensor in start_indices]
         
         if self.seed == None:
-            random_seeds  = torch.randint(0, 100000, size = (self.n_res,), device = self.device, generator = self.random_state)
+            random_seeds  = torch.randint(0, 100000, size = (self.n_res,), generator = self.random_state) #device = self.device, 
         else:
             random_seeds = [self.seed]
 
@@ -947,20 +965,15 @@ class EchoStateNetworkCV:
         
         start = time.time()
 
-        try:
-            res_args  = {"reservoir" : self.reservoir_matrices}
-            #arguments = {**arguments, **res_args}
-        except:
-            assert 1 == 0
-            print("failed to load")
-
         declaration_args = {'activation_f' : self.activation_function,
                             'backprop' : self.backprop,
                             'model_type' : self.model_type,
                             'input_weight_type' : self.input_weight_type, 
-                            'approximate_reservoir' : self.approximate_reservoir
+                            'approximate_reservoir' : self.approximate_reservoir,
+                            "device" : self.device,
+                            "reservoir" : self.reservoir_matrices 
+                            #deepcopy()
                             }
-        declaration_args["reservoir"] = None
         train_args = {"burn_in" : self.esn_burn_in, "learning_rate" : self.learning_rate}
         test_args = {"scoring_method" : self.scoring_method}
 
@@ -970,21 +983,15 @@ class EchoStateNetworkCV:
                               "device" : self.device
                               }
 
+        #the algorithm is O(n) w.r.t. cv_samples.
         cv_samples = [self.objective_sampler() for i in range(self.cv_samples)]
+        
+        data_args = [(cv_samples, parallel_arguments, params, i) for i, params in enumerate(parameter_lst)]
 
-
-        #it's easy... just ... give the cv_samples in a list and make the algorithm O(n) w.r.t. cv_samples.
-        #
-        data_args = []
-        count = 0
-        for i in range(parameters.shape[0]):
-
-            #CHANGE THIS LATER SO THAT WE INPUT THESE ARGUMENTS EVERY SINGLE RUN
-            data_args.append((cv_samples, parallel_arguments, parameter_lst[i], count))
-            count += 1
+        #execute_HRC(data_args[0])
 
         num_processes = parameters.shape[0]
-        Pool = multiprocessing.Pool(num_processes)
+        Pool = mp.Pool(num_processes)
 
         #get the asynch object:
         results = Pool.map(execute_HRC, data_args) #list(zip(*)))
@@ -1090,8 +1097,10 @@ class EchoStateNetworkCV:
         self.random_state = torch.Generator().manual_seed(self.seed + 2)
 
         # Temporarily store the data
-        self.x = x.type(torch.float32).to(device) if x is not None else torch.ones(*y.shape, device = self.device)
-        self.y = y.type(torch.float32).to(device)                            
+        #self.x = x.type(torch.float32).to(self.device) if x is not None else torch.ones(*y.shape, device = self.device)
+        #self.y = y.type(torch.float32).to(self.device)  
+        self.x = x.type(torch.float32) if x is not None else torch.ones(*y.shape)
+        self.y = y.type(torch.float32)                           
 
         # Inform user
         if self.verbose:
@@ -1107,7 +1116,7 @@ class EchoStateNetworkCV:
         
         self.count = 1
 
-        X_init = get_initial_points(self.scaled_bounds.shape[1], self.initial_samples).to(device)
+        X_init = get_initial_points(self.scaled_bounds.shape[1], self.initial_samples, device = self.device, dtype = self.dtype).to(self.device)
         
         for i in range(X_init.shape[0] // self.batch_size):
             print(i)
@@ -1123,8 +1132,8 @@ class EchoStateNetworkCV:
             #X_turbo.share_memory()
             #Y_turbo = torch.tensor(
             #    [self.eval_objective(x.view(1,-1)) for x in X_turbo], dtype=dtype, device=device).unsqueeze(-1)
-        X_turbo = X_turbo.to(device)
-        Y_turbo = Y_turbo.to(device)
+        X_turbo = X_turbo.to(self.device)
+        Y_turbo = Y_turbo.to(self.device)
         
         n_init = self.initial_samples
 
@@ -1152,8 +1161,9 @@ class EchoStateNetworkCV:
                 num_restarts=10,
                 raw_samples=512,
                 acqf="ts",
+                device = self.device
             )
-            X_next = X_next.to(device)
+            X_next = X_next.to(self.device)
 
             #assert 1 ==0, X_next
 
@@ -1163,7 +1173,7 @@ class EchoStateNetworkCV:
             print('Y_next', Y_next)
             print("self.state", self.state)
             # Update state
-            self.state = update_state(state=self.state, Y_next=Y_next)
+            self.state = update_state(state=self.state, Y_next=Y_next, dtype = self.dtype)
 
             # Append data
             X_turbo = torch.cat((X_turbo, X_next), dim=0)

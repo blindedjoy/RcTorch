@@ -1,11 +1,18 @@
-import multiprocessing
-def sum_up_to(number):
-    return sum(range(1, number + 1))
+from multiprocessing import Process
+import os
 
-if __name__ == "__main__":
-	a_pool = multiprocessing.Pool()
-	#Create pool object
+def info(title):
+    print(title)
+    print('module name:', __name__)
+    print('parent process:', os.getppid())
+    print('process id:', os.getpid())
 
+def f(name):
+    info('function f')
+    print('hello', name)
 
-	result = a_pool.map(sum_up_to, range(10))
-	print(result)
+if __name__ == '__main__':
+    info('main line')
+    p = Process(target=f, args=('bob',))
+    p.start()
+    p.join()
