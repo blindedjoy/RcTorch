@@ -313,13 +313,15 @@ def execute_HRC(arguments, upper_error_limit = 10000):
     cv_samples, parallel_arguments, parameters, id_ = arguments
     device = parallel_arguments["device"]
 
-
     #move specific arguments to the gpu.
     cv_samples_ = []
     for i, cv_sample in enumerate(cv_samples):
-        if  cv_sample["tr_x"].device != device:
-            train_x, train_y = cv_sample["tr_x"].to(device), cv_sample["tr_y"].to(device)
-            validate_x, validate_y = cv_sample["val_x"].to(device), cv_sample["val_y"].to(device)
+        if  cv_sample["tr_y"].device != device:
+            if cv_sample["tr_x"]:
+                 train_x, validate_x = cv_sample["tr_x"].to(device), cv_sample["val_x"].to(device)
+            else:
+                train_x, validate_x = None, None
+            train_y, validate_y  = cv_sample["tr_y"].to(device), cv_sample["val_y"].to(device)
         else:
             #consider not sending the cv_sample["x"] if it's a pure prediction.
             train_x, train_y = cv_sample["tr_x"], cv_sample["tr_y"]
@@ -327,7 +329,7 @@ def execute_HRC(arguments, upper_error_limit = 10000):
         cv_samples_.append((train_x, train_y, validate_x, validate_y))
 
     #now move the input weights and the reservoir arguments to the gpu.
-    reservoir = deepcopy(parallel_arguments["declaration_args"]["reservoir"])
+    reservoir = parallel_arguments["declaration_args"]["reservoir"]#deepcopy()
     reservoir.in_weights = reservoir.in_weights.to(device)
     reservoir.accept = reservoir.accept.to(device)
     reservoir.reservoir_pre_weights = reservoir.reservoir_pre_weights.to(device)
@@ -343,8 +345,14 @@ def execute_HRC(arguments, upper_error_limit = 10000):
         
         RC.train(X = train_x, y = train_y, **parallel_arguments["train_args"])
 
+        del train_x; del train_y;
+
         # Validation score
         score, pred_, id_ = RC.test(x=validate_x, y= validate_y, **parallel_arguments["test_args"])
+
+        del validate_x;
+        if id_ != 0:
+            del validate_y; del pred_;
 
         score = min(score, torch.tensor(upper_error_limit, device = device))
 
@@ -356,9 +364,16 @@ def execute_HRC(arguments, upper_error_limit = 10000):
             score_ = score
         else:
             score_ += score
-    score_mu = score_/len(cv_samples)
 
-    return score_mu.to("cpu"), {"pred": pred_.to("cpu"), "val_y" : validate_y.to("cpu")}, id_
+        #if device == torch.device('cuda'):
+        #    torch.cuda.empty_cache()
+    del RC;
+    score_mu = score_/len(cv_samples)
+    del cv_samples;
+    if id_ == 0:
+        return float(score_mu), {"pred": pred_.to("cpu"), "val_y" : validate_y.to("cpu")}, id_
+    else:
+        return float(score_mu), None, id_
 
 class EchoStateNetworkCV:
     """A cross-validation object that automatically optimizes ESN hyperparameters using Bayesian optimization with
@@ -478,12 +493,13 @@ class EchoStateNetworkCV:
 
         ######
 
-        if 'cuda' in str(device):
-            torch.cuda.empty_cache()
+        
         if not device:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = device
+        if self.device == torch.device('cuda'):
+            torch.cuda.empty_cache()
         self.dtype = dtype
 
         print("FEEDBACK:", esn_feedback, ", device:", device)
@@ -972,7 +988,6 @@ class EchoStateNetworkCV:
                             'approximate_reservoir' : self.approximate_reservoir,
                             "device" : self.device,
                             "reservoir" : self.reservoir_matrices 
-                            #deepcopy()
                             }
         train_args = {"burn_in" : self.esn_burn_in, "learning_rate" : self.learning_rate}
         test_args = {"scoring_method" : self.scoring_method}
@@ -988,16 +1003,19 @@ class EchoStateNetworkCV:
         
         data_args = [(cv_samples, parallel_arguments, params, i) for i, params in enumerate(parameter_lst)]
 
-        #execute_HRC(data_args[0])
+
+        
 
         num_processes = parameters.shape[0]
         Pool = mp.Pool(num_processes)
 
         #get the asynch object:
-        results = Pool.map(execute_HRC, data_args) #list(zip(*)))
+        results = Pool.map(execute_HRC, data_args)
         
         Pool.close()
         Pool.join()
+        if self.device == 'cuda':
+            torch.cuda.empty_cache()
         
         if len(results) > 1:
 
@@ -1019,7 +1037,7 @@ class EchoStateNetworkCV:
                 Scores_ = [score]
             else:
                 Scores_.append(score)
-            self.errorz.append(score.type(torch.float32).detach())
+            self.errorz.append(score)
             
         #if self.count % self.batch_size == 0:
         self.train_plot_update(pred_ = preds[0]["pred"], validate_y = preds[0]["val_y"], 
@@ -1055,7 +1073,7 @@ class EchoStateNetworkCV:
         self.iteration_durations.append(stop - start)
         self.count += 1
 
-        return -Scores_
+        return - Scores_
     
     
     
@@ -1099,7 +1117,7 @@ class EchoStateNetworkCV:
         # Temporarily store the data
         #self.x = x.type(torch.float32).to(self.device) if x is not None else torch.ones(*y.shape, device = self.device)
         #self.y = y.type(torch.float32).to(self.device)  
-        self.x = x.type(torch.float32) if x is not None else torch.ones(*y.shape)
+        self.x = x.type(torch.float32) if x is not None else None#torch.ones(*y.shape)
         self.y = y.type(torch.float32)                           
 
         # Inform user
@@ -1116,19 +1134,24 @@ class EchoStateNetworkCV:
         
         self.count = 1
 
-        X_init = get_initial_points(self.scaled_bounds.shape[1], self.initial_samples, device = self.device, dtype = self.dtype).to(self.device)
+        X_init = get_initial_points(self.scaled_bounds.shape[1], self.initial_samples, device = self.device, dtype = self.dtype)
         
-        for i in range(X_init.shape[0] // self.batch_size):
-            print(i)
-            X_batch = X_init[ (i*self.batch_size) : ((i+1)*self.batch_size), : ]
-            Y_batch = self.eval_objective( X_batch ) 
-            if not i:
-                X_turbo = X_batch
-                Y_turbo = Y_batch 
-            else:
-                Y_turbo = torch.cat((Y_turbo, Y_batch), dim=0)
-                X_turbo = torch.cat((X_turbo, X_batch), dim=0)
-        
+        if len(X_init) > self.batch_size:
+            for i in range(X_init.shape[0] // self.batch_size):
+                print(i)
+                X_batch = X_init[ (i*self.batch_size) : ((i+1)*self.batch_size), : ]
+                Y_batch = self.eval_objective( X_batch ) 
+                if not i:
+                    X_turbo = X_batch
+                    Y_turbo = Y_batch 
+                else:
+                    Y_turbo = torch.cat((Y_turbo, Y_batch), dim=0)
+                    X_turbo = torch.cat((X_turbo, X_batch), dim=0)
+        else:
+
+            X_turbo = X_init
+            Y_turbo = self.eval_objective( X_init)
+            
             #X_turbo.share_memory()
             #Y_turbo = torch.tensor(
             #    [self.eval_objective(x.view(1,-1)) for x in X_turbo], dtype=dtype, device=device).unsqueeze(-1)
@@ -1163,7 +1186,7 @@ class EchoStateNetworkCV:
                 acqf="ts",
                 device = self.device
             )
-            X_next = X_next.to(self.device)
+            X_next = X_next
 
             #assert 1 ==0, X_next
 

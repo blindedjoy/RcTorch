@@ -104,7 +104,7 @@ class EchoStateNetwork(nn.Module):
         self.connectivity = connectivity
         self.feedback_scaling = feedback_scaling
         self.input_scaling = input_scaling
-        self.leaking_rate = leaking_rate
+        self.leaking_rate = [leaking_rate, 1 - leaking_rate]
         self.n_nodes = n_nodes
         self.noise = noise #torch.rand(self.n_nodes).view(-1,1) if noise else None
 
@@ -173,15 +173,14 @@ class EchoStateNetwork(nn.Module):
         #if self.noise:
         #    preactivation += torch.normal(self.noise)
 
-        update = self.activation_function(preactivation) + self.PyESNnoise * (self.external_noise - 0.5)
-        next_state = self.leaking_rate * update + (1 - self.leaking_rate) * current_state
+        update = self.activation_function(preactivation) # + self.PyESNnoise * (self.external_noise - 0.5)
+        next_state = self.leaking_rate[0] * update + self.leaking_rate[1] * current_state
         return next_state
 
 
     def gen_reservoir(self, obs_idx = None, targ_idx = None, load_failed = None):
         """Generates random reservoir from parameters set at initialization."""
         # Initialize new random state
-        start = time.time()
 
         #random_state = np.random.RandomState(self.random_state)
 
@@ -214,7 +213,10 @@ class EchoStateNetwork(nn.Module):
                     else:
                         self.weights = self.reservoir.reservoir_pre_weights < self.connectivity
                         self.weights *= self.reservoir.accept
-                        self.weights = self.weights #.to(device)
+                        self.weights = self.weights
+
+                        del self.accept; del self.reservoir.reservoir_pre_weights;
+
                     #printc("reservoir successfully loaded (" + str(self.weights.shape) , 'green') 
                 except:
                     assert 1 == 0
@@ -253,8 +255,6 @@ class EchoStateNetwork(nn.Module):
 
         # Set output weights to none to indicate untrained ESN
         self.out_weights = None
-        if load_failed:
-            print()
              
 
     def set_Win(self): #inputs
@@ -266,22 +266,18 @@ class EchoStateNetwork(nn.Module):
             inputs:
         """
         with torch.no_grad():
-            n, m = self.n_nodes, self.n_inputs,
+            n, m = self.n_nodes, self.n_inputs
             #weight
             if not self.reservoir or 'in_weights' not in dir(self.reservoir): 
+                
                 print("GENERATING IN WEIGHTS")
 
-                in_weights = torch.rand(n, m, generator = self.random_state, device = self.device)
+                in_weights = torch.rand(n, m, generator = self.random_state, device = self.device, requires_grad = False)
                 in_weights =  in_weights * 2 - 1
-
-                #bias matrix
-
-                #feedback weights
-                assert 1 ==0
                 
             else:
                 
-                in_weights = self.reservoir.in_weights #.to(self.device)  #+ self.noise * self.reservoir.noise_z One possibility is to add noise here, another is after activation.
+                in_weights = self.reservoir.in_weights #+ self.noise * self.reservoir.noise_z One possibility is to add noise here, another is after activation.
                 
                 ##### Later for speed re-add the feedback weights here.
 
@@ -298,7 +294,6 @@ class EchoStateNetwork(nn.Module):
             #uniform bias can be seen as means of normal random variables.
             if self.bias == "uniform":
                 #random uniform distributed bias
-                bias = torch.rand(n, 1, generator = self.random_state, device = self.device)
                 bias = bias * 2 - 1
             elif type(self.bias) in [type(1), type(1.5)]:
                 bias = bias = torch.zeros(n, 1, device = self.device)
@@ -316,7 +311,7 @@ class EchoStateNetwork(nn.Module):
                 self.bias_ = self.bias_.squeeze()
 
             if self.feedback:
-                feedback_weights = torch.rand(self.n_nodes, self.n_outputs, device = self.device, generator = self.random_state) * 2 - 1
+                feedback_weights = torch.rand(self.n_nodes, self.n_outputs, device = self.device, requires_grad = False, generator = self.random_state) * 2 - 1
                 feedback_weights *= self.feedback_scaling
                 feedback_weights = feedback_weights.view(self.n_nodes, -1)
                 feedback_weights = nn.Parameter(feedback_weights, requires_grad = False) 
@@ -408,9 +403,6 @@ class EchoStateNetwork(nn.Module):
             self.LinOut.requires_grad_, self.LinIn.requires_grad_, self.LinFeedback.requires_grad_ = False, False, False
 
         self.burn_in = burn_in
-
-        # later add noise.
-        self.inner_noise, self.outer_noise = False, False
 
         self.losses = None
             
@@ -615,7 +607,7 @@ class EchoStateNetwork(nn.Module):
         final_t =y.shape[0]
         if steps_ahead is None:
             if x is None:
-                x = torch.ones(*y.shape, device = device)
+                x = torch.ones(*y.shape, device = self.device)
             y_predicted = self.predict(n_steps = y.shape[0], x=x, y_start=y_start)
             #printc("predicting "  + str(y.shape[0]) + "steps", 'blue')
         else:
