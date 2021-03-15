@@ -1,4 +1,4 @@
-Reservoir
+RcTorch
 =========
 A Python 3 toolset for creating and optimizing Echo State Networks.
 

@@ -9,3 +9,12 @@ pathlib
 matplotlib
 torch
 gpytorch
+
+[draw]
+networkx
+
+[test]
+pytest-cov
+pytest
+numpy
+matplotlib

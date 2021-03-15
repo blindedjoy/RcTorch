@@ -1,8 +1,8 @@
 =========
-Reservoir
+RcTorch
 =========
 
-This is the documentation of **Reservoir**.
+This is the documentation of **RcTorch**.
 
 .. note::
 

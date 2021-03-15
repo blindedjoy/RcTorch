@@ -1,0 +1,5 @@
+.travis.yml
+dist/**
+build/**
+dist
+build
