@@ -79,14 +79,14 @@ class EchoStateNetwork(nn.Module):
                  noise = 0, input_scaling = 0.5, leaking_rate = 0.99, regularization = 10 **-3, backprop = False,
                  criterion = NLLLoss(), classification = False, output_size = 50, feedback_scaling = 0.5,
                  bias = "uniform", connectivity = 0.1, random_state = 123,
-                 obs_idx = None, resp_idx = None,
+                 obs_idx = None, resp_idx = None, dtype = torch.float32,
                  reservoir = None, model_type = "uniform", input_weight_type = None, approximate_reservoir = False,
                  device = None, epochs = 7, PyESNnoise=0.001, l2_prop = 1, reg_lr = 10**-4, id_ = None):
         super().__init__()
         
         self.l2_prop = l2_prop 
         self.reg_lr = reg_lr
-
+        self.dtype = dtype
         self.epochs = epochs
 
         if not device:
@@ -355,6 +355,15 @@ class EchoStateNetwork(nn.Module):
             learning_rate: 
             verbose:
         """
+        if type(y) == np.ndarray:
+             y = torch.tensor(y, device = self.device)
+        if y.device != self.device:
+            y = y.to(self.device)
+        if X:
+            if type(X) == np.ndarray:
+                X = torch.tensor(X, device = self.device)
+            if X.device != self.device:
+                X = X.to(self.device)
 
         start_index = 1 if self.feedback else 0 
         rows = y.shape[0] - start_index
@@ -605,8 +614,16 @@ class EchoStateNetwork(nn.Module):
 
         """
         self.steps_ahead = steps_ahead
+        if type(y) == np.ndarray:
+             y = torch.tensor(y, device = self.device)
         if y.device != self.device:
             y = y.to(self.device)
+        if x:
+            if type(x) == np.ndarray:
+                x = tensor(x, device = self.device)
+            if x.device != self.device:
+                x = x.to(self.device)
+
         
         # Run prediction
         final_t =y.shape[0]
@@ -619,7 +636,10 @@ class EchoStateNetwork(nn.Module):
             y_predicted = self.predict_stepwise(y, x, steps_ahead=steps_ahead, y_start=y_start)[:final_t,:]
         
         # Return error
-        return self.error(y_predicted, y, scoring_method, alpha=alpha), y_predicted, self.id_
+        if type(self.id_) == type(None):
+            return self.error(y_predicted, y, scoring_method, alpha=alpha), y_predicted.cpu().numpy()
+        else:
+            return self.error(y_predicted, y, scoring_method, alpha=alpha), y_predicted, self.id_
 
 
     def predict(self, n_steps, x=None, y_start=None, continuation = True):

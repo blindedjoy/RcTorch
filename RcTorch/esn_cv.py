@@ -6,6 +6,7 @@ from math import ceil, fabs
 import numpy as np
 from scipy.sparse import csr_matrix
 from multiprocessing import Pool as mp_Pool
+import multiprocessing
 import pylab as pl
 from IPython import display
 
@@ -336,7 +337,6 @@ def execute_HRC(arguments, upper_error_limit = 10000):
 
     del parallel_arguments["declaration_args"]["reservoir"]
 
-
     RC = EchoStateNetwork(**parallel_arguments["declaration_args"], reservoir = reservoir, **parameters, id_ = id_)
     
     for i, cv_sample in enumerate(cv_samples_):
@@ -351,6 +351,7 @@ def execute_HRC(arguments, upper_error_limit = 10000):
         score, pred_, id_ = RC.test(x=validate_x, y= validate_y, **parallel_arguments["test_args"])
 
         del validate_x;
+
         if id_ != 0:
             del validate_y; del pred_;
 
@@ -493,7 +494,7 @@ class EchoStateNetworkCV:
 
         ######
 
-                
+        #multiprocessing.set_start_method('spawn')
         if not device:
             self.device = torch_device("cuda" if cuda_is_available() else "cpu")
         else:
@@ -533,7 +534,7 @@ class EchoStateNetworkCV:
         self.validate_fraction = validate_fraction
         self.steps_ahead = steps_ahead
         self.batch_size = batch_size
-        self.cv_samples = cv_samples
+        self.cv_samples = cv_samples 
         self.scoring_method = scoring_method
         self.esn_burn_in =  tensor(esn_burn_in, dtype=torch.int32).item()   #torch.adjustment required
         self.esn_feedback = esn_feedback
@@ -1004,29 +1005,31 @@ class EchoStateNetworkCV:
         data_args = [(cv_samples, parallel_arguments, params, i) for i, params in enumerate(parameter_lst)]
 
         num_processes = parameters.shape[0]
-        Pool = mp_Pool(num_processes)
 
-        #get the asynch object:
-        results = Pool.map(execute_HRC, data_args)
-        
-        Pool.close()
-        Pool.join()
+        if self.batch_size > 1:
+            Pool = mp_Pool(num_processes)
+
+            #get the asynch object:
+            results = Pool.map(execute_HRC, data_args)
+            
+            Pool.close()
+            Pool.join()
+
+            #results = sorted(results, key=lambda x: x[2]) Later if we decide to run cv_samples in parallel reactivate this line
+
+            #results = [(result[0], result[1]) for result in results]
+
+            #scores, preds = list(zip(*results))
+
+            results = [(result[0], result[1]) for result in results]
+            scores, preds = list(zip(*results)) 
+        else:
+            results = execute_HRC(data_args[0])
+            scores, preds, id_ = results
+            scores, preds = [scores], [preds]
+
         if self.device == 'cuda':
             torch.cuda.empty_cache()
-        
-        if len(results) > 1:
-
-            #resort the parallelized output and drop the ids
-            results = sorted(results, key=lambda x: x[2])
-
-            results = [(result[0], result[1]) for result in results]
-
-            scores, preds = list(zip(*results))
-
-        else:
-            results = [(result[0], result[1]) for result in results]
-            scores, preds = list(zip(*results))  
-        error = np.mean(scores)
         
         for i, score in enumerate(scores):
             #score = score.view(1,1)
@@ -1114,7 +1117,13 @@ class EchoStateNetworkCV:
         # Temporarily store the data
         #self.x = x.type(torch.float32).to(self.device) if x is not None else torch.ones(*y.shape, device = self.device)
         #self.y = y.type(torch.float32).to(self.device)  
-        self.x = x.type(torch.float32) if x is not None else None#torch.ones(*y.shape)
+        if type(y) != type(torch.tensor(0)):
+             y = torch.tensor(y)
+        if x:
+            if type(x) != type(torch.tensor(0)):
+                x = torch.tensor(x)
+
+        self.x = x.type(torch.float32) if x is not None else None #torch.ones(*y.shape)
         self.y = y.type(torch.float32)                           
 
         # Inform user

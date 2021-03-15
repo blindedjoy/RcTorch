@@ -128,7 +128,7 @@ html_theme = 'alabaster'
 # The name for this set of Sphinx documents.  If None, it defaults to
 # "<project> v<release> documentation".
 try:
-    from reservoir import __version__ as version
+    from rctorch import __version__ as version
 except ImportError:
     pass
 else:
