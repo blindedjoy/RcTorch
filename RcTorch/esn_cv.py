@@ -305,7 +305,7 @@ class ReservoirBuildingBlocks:
 
 __all__ = ['EchoStateNetworkCV']
 
-def execute_HRC(arguments, upper_error_limit = 10000):
+def execute_HRC(arguments, upper_error_limit = 10000, method = 'spawn'):
     #later call define_tr_val from within this function for speedup.
 
 
@@ -313,29 +313,31 @@ def execute_HRC(arguments, upper_error_limit = 10000):
     #assert 1 == 0, "made it" + str(parallel_arguments)
     cv_samples, parallel_arguments, parameters, id_ = arguments
     device = parallel_arguments["device"]
+    reservoir = parallel_arguments["declaration_args"]["reservoir"]
 
-    #move specific arguments to the gpu.
-    cv_samples_ = []
-    for i, cv_sample in enumerate(cv_samples):
-        if  cv_sample["tr_y"].device != device:
-            if cv_sample["tr_x"]:
-                 train_x, validate_x = cv_sample["tr_x"].to(device), cv_sample["val_x"].to(device)
+    if method == 'spawn':
+        #move specific arguments to the gpu.
+        cv_samples_ = []
+        for i, cv_sample in enumerate(cv_samples):
+            if  cv_sample["tr_y"].device != device:
+                if cv_sample["tr_x"]:
+                     train_x, validate_x = cv_sample["tr_x"].to(device), cv_sample["val_x"].to(device)
+                else:
+                    train_x, validate_x = None, None
+                train_y, validate_y  = cv_sample["tr_y"].to(device), cv_sample["val_y"].to(device)
             else:
-                train_x, validate_x = None, None
-            train_y, validate_y  = cv_sample["tr_y"].to(device), cv_sample["val_y"].to(device)
-        else:
-            #consider not sending the cv_sample["x"] if it's a pure prediction.
-            train_x, train_y = cv_sample["tr_x"], cv_sample["tr_y"]
-            validate_x, validate_y = cv_sample["val_x"], cv_sample["val_y"]
-        cv_samples_.append((train_x, train_y, validate_x, validate_y))
+                #consider not sending the cv_sample["x"] if it's a pure prediction.
+                train_x, train_y = cv_sample["tr_x"], cv_sample["tr_y"]
+                validate_x, validate_y = cv_sample["val_x"], cv_sample["val_y"]
+            cv_samples_.append((train_x, train_y, validate_x, validate_y))
 
-    #now move the input weights and the reservoir arguments to the gpu.
-    reservoir = parallel_arguments["declaration_args"]["reservoir"]#deepcopy()
-    reservoir.in_weights = reservoir.in_weights.to(device)
-    reservoir.accept = reservoir.accept.to(device)
-    reservoir.reservoir_pre_weights = reservoir.reservoir_pre_weights.to(device)
+            #now move the input weights and the reservoir arguments to the gpu.
+            #deepcopy()
+            reservoir.in_weights = reservoir.in_weights.to(device)
+            reservoir.accept = reservoir.accept.to(device)
+            reservoir.reservoir_pre_weights = reservoir.reservoir_pre_weights.to(device)
 
-    del parallel_arguments["declaration_args"]["reservoir"]
+        del parallel_arguments["declaration_args"]["reservoir"]
 
     RC = EchoStateNetwork(**parallel_arguments["declaration_args"], reservoir = reservoir, **parameters, id_ = id_)
     
