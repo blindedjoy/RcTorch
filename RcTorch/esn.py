@@ -145,7 +145,7 @@ class EchoStateNetwork(nn.Module):
         change bias back to "uniform"
     """
     def __init__(self, n_nodes = 1000, bias = 0, connectivity = 0.1, leaking_rate = 0.99, spectral_radius=0.9, #<-- important hyper-parameters
-                 regularization = 10 **-3, activation_f = Tanh(), feedback = True,                              #<-- activation, feedback
+                 regularization = None, activation_f = Tanh(), feedback = True,                              #<-- activation, feedback
                  input_scaling = 0.5, feedback_scaling = 0.5, noise = None,                                     #<-- hyper-params not needed for the hw
                  approximate_reservoir = False, device = None, id_ = None, random_state = 123, reservoir = None, #<-- process args
                  backprop = False, classification = False, criterion = NLLLoss(),  epochs = 7, l2_prop = 1): #<-- this line is backprop arguments
@@ -159,6 +159,7 @@ class EchoStateNetwork(nn.Module):
             self.device = torch_device("cuda" if cuda_is_available() else "cpu")
         else:
             self.device = device
+        self.dtype = torch.float32
 
         # random state and default tensor arguments
         self.random_state = Generator(device=self.device).manual_seed(random_state)
@@ -244,15 +245,16 @@ class EchoStateNetwork(nn.Module):
 
         if self.feedback:
             preactivation += self.LinFeedback(output_pattern)
-        if self.noise != None:
-            noise_vec = torch.normal(mean = torch.zeros(self.n_nodes, device = self.device), 
-                                          std = torch.ones(self.n_nodes, device = self.device),
-                                          generator = self.random_state)
-            preactivation += noise_vec
+        
         #alternative: uniform noise
         #self.noise = rand(self.n_nodes, **self.tensor_args).view(-1,1) if noise else None
 
         update = self.activation_function(preactivation) # + self.PyESNnoise * (self.external_noise - 0.5)
+        if self.noise != None:
+            noise_vec = torch.normal(mean = torch.zeros(self.n_nodes, device = self.device), 
+                                          std = torch.ones(self.n_nodes, device = self.device),
+                                          generator = self.random_state)* self.noise
+            update += noise_vec 
         next_state = self.leaking_rate[0] * update + self.leaking_rate[1] * current_state
         return next_state
 
@@ -419,7 +421,7 @@ class EchoStateNetwork(nn.Module):
             plt.plot(list(range(len(self.state[:,i]))), RC.state[:,i], alpha = 0.8)
 
 
-    def train(self, y, X=None, burn_in=0, input_weight=None, verbose = False , learning_rate = None):
+    def train(self, y, X=None, burn_in=0, input_weight=None, verbose = False , learning_rate = None, return_states = False):
         """
         Train the network.
         
@@ -432,14 +434,20 @@ class EchoStateNetwork(nn.Module):
             verbose:
         """
         if type(y) == np.ndarray:
-             y = torch.tensor(y, device = self.device)
+             y = torch.tensor(y, device = self.device, dtype = self.dtype, requires_grad = False)
         if y.device != self.device:
             y = y.to(self.device)
+        if len(y.shape) == 1:
+            y = y.view(-1, 1)
+            
         if X:
             if type(X) == np.ndarray:
-                X = torch.tensor(X, device = self.device)
+                X = torch.tensor(X, device = self.device, dtype = self.dtype, requires_grad = False)
             if X.device != self.device:
                 X = X.to(self.device)
+            if len(X.shape) == 1:
+                X = X.view(-1, 1)
+
 
         start_index = 1 if self.feedback else 0 
         rows = y.shape[0] - start_index
@@ -462,9 +470,9 @@ class EchoStateNetwork(nn.Module):
             else:
                 self._input_stds = None
                 self._input_means = None
-                
-        self.n_inputs = X.shape[1]
+        
         self.n_outputs = y.shape[1]
+        self.n_inputs = X.shape[1]
         
         self.lastoutput = y[-1, :]
         self.lastinput = X[-1, :]
@@ -611,7 +619,12 @@ class EchoStateNetwork(nn.Module):
         self.y_last = y[-1, :]
 
         # Return all data for computation or visualization purposes (Note: these are normalized)
-        return extended_states, (y[1:,:] if self.feedback else y), burn_in
+        if return_states:
+            return extended_states, (y[1:,:] if self.feedback else y), burn_in
+        else:
+            yfit_norm = self.LinOut.weight.T.cpu()@extended_states.T.cpu() + self.LinOut.bias.cpu()
+            yfit = self._output_stds.cpu()* (yfit_norm)+ self._output_means.cpu()
+            return yfit.detach().numpy()
     
     def normalize(self, inputs=None, outputs=None, keep=False):
         """Normalizes array by column (along rows) and stores mean and standard devation.
@@ -622,7 +635,7 @@ class EchoStateNetwork(nn.Module):
         ----------
         inputs : array or None
             Input matrix that is to be normalized
-        outputs : array or None
+        outputs : array or No ne
             Output column vector that is to be normalized
         keep : bool
             Stores the normalization transformation in the object to denormalize later
@@ -689,8 +702,11 @@ class EchoStateNetwork(nn.Module):
 
         """
         self.steps_ahead = steps_ahead
+
         if type(y) == np.ndarray:
              y = torch.tensor(y, device = self.device)
+        if len(y.shape) == 1:
+            y = y.view(-1, 1)
         if y.device != self.device:
             y = y.to(self.device)
         if x:
@@ -713,9 +729,9 @@ class EchoStateNetwork(nn.Module):
         score = self.error(y_predicted, y, scoring_method, alpha=alpha)
         
         # Return error
-        if type(self.id_) == type(None):
+        if self.id_ == None:
             #user friendly
-            return score, y_predicted.cpu().numpy()
+            return float(score), y_predicted.cpu().numpy()
         else:
             #internal to esn_cv
             return score, y_predicted, self.id_

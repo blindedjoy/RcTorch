@@ -216,7 +216,7 @@ class ReservoirBuildingBlocks:
         n_inputs: the number of observers in the case of a block experiment, the size of the output in the case of a pure prediction where teacher forcing is used.
 
     """
-    def __init__(self, model_type, input_weight_type, random_seed, n_nodes, n_inputs = None, Distance_matrix = None, sparse = False):
+    def __init__(self, model_type, input_weight_type, random_seed , n_nodes, n_inputs = None, Distance_matrix = None, sparse = False):
         #print("INITIALING RESERVOIR")
 
         #initialize attributes
@@ -319,7 +319,7 @@ class ReservoirBuildingBlocks:
 
 __all__ = ['EchoStateNetworkCV']
 
-def execute_HRC(arguments, upper_error_limit = 10000, method = 'spawn'):
+def execute_HRC(arguments, upper_error_limit = 10000):
     """TODO
 
     Arguments: TODO
@@ -330,11 +330,11 @@ def execute_HRC(arguments, upper_error_limit = 10000, method = 'spawn'):
 
     #score, pred_ = self.define_tr_val() #just get the train and test...
     #assert 1 == 0, "made it" + str(parallel_arguments)
-    cv_samples, parallel_arguments, parameters, id_ = arguments
+    cv_samples, parallel_arguments, parameters, windowsOS, id_ = arguments
     device = parallel_arguments["device"]
     reservoir = parallel_arguments["declaration_args"]["reservoir"]
 
-    if method == 'spawn':
+    if windowsOS == True:
         #move specific arguments to the gpu.
         cv_samples_ = []
         for i, cv_sample in enumerate(cv_samples):
@@ -352,14 +352,22 @@ def execute_HRC(arguments, upper_error_limit = 10000, method = 'spawn'):
 
             #now move the input weights and the reservoir arguments to the gpu.
             #deepcopy()
-            reservoir.in_weights = reservoir.in_weights.to(device)
-            reservoir.accept = reservoir.accept.to(device)
-            reservoir.reservoir_pre_weights = reservoir.reservoir_pre_weights.to(device)
+            if reservoir != None:
+                reservoir.in_weights = reservoir.in_weights.to(device)
+                reservoir.accept = reservoir.accept.to(device)
+                reservoir.reservoir_pre_weights = reservoir.reservoir_pre_weights.to(device)
 
         del parallel_arguments["declaration_args"]["reservoir"]
+        RC = EchoStateNetwork(**parallel_arguments["declaration_args"], reservoir = reservoir, **parameters, id_ = id_)
+    else:
+        RC = EchoStateNetwork(**parallel_arguments["declaration_args"], **parameters, id_ = id_)
+        cv_samples_ = cv_samples
+        cv_samples_ = []
+        for i, cv_sample in enumerate(cv_samples):
+            train_x, validate_x = cv_sample["tr_x"], cv_sample["val_x"]
+            train_y, validate_y  = cv_sample["tr_y"], cv_sample["val_y"]
+            cv_samples_.append((train_x, train_y, validate_x, validate_y))
 
-    RC = EchoStateNetwork(**parallel_arguments["declaration_args"], reservoir = reservoir, **parameters, id_ = id_)
-    
     for i, cv_sample in enumerate(cv_samples_):
 
         train_x, train_y, validate_x, validate_y = cv_sample
@@ -376,12 +384,6 @@ def execute_HRC(arguments, upper_error_limit = 10000, method = 'spawn'):
         if id_ != 0:
             del validate_y; del pred_;
 
-        score = min(score, tensor(upper_error_limit, device = device))
-
-        if torch.isnan(score):
-            score_ = tensor(upper_error_limit, device = device)
-            break
-
         if not i:
             score_ = score
         else:
@@ -389,6 +391,11 @@ def execute_HRC(arguments, upper_error_limit = 10000, method = 'spawn'):
 
         #if device == torch.device('cuda'):
         #    torch.cuda.empty_cache()
+    score = min(score, tensor(upper_error_limit, device = device))
+
+    if torch.isnan(score):
+        score_ = tensor(upper_error_limit, device = device)
+
     del RC;
     score_mu = score_/len(cv_samples)
     del cv_samples;
@@ -506,8 +513,9 @@ class EchoStateNetworkCV:
                  scoring_method='nrmse', esn_burn_in=0, random_seed=None, esn_feedback=None, 
                  verbose=True, model_type = "random", activation_function = nn.Tanh(), 
                  input_weight_type = "uniform", backprop = False, interactive = False, 
-                 approximate_reservoir = False, failure_tolerance = 1, length_min = None, 
-                 device = None, learning_rate = 0.005, success_tolerance = 3, dtype = torch.float32):
+                 approximate_reservoir = False, failure_tolerance = 1, length_min = 2**(-9), 
+                 device = None, learning_rate = 0.005, success_tolerance = 3, dtype = torch.float32,
+                 windowsOS = False):
         
         #### uncompleted tasks:
         #1) upgrade to multiple acquisition functions.
@@ -516,6 +524,12 @@ class EchoStateNetworkCV:
         ######
 
         #multiprocessing.set_start_method('spawn')
+        self.windowsOS = windowsOS
+        if not self.windowsOS:
+            try:
+                multiprocessing.set_start_method('spawn')
+            except:
+                pass
         if not device:
             self.device = torch_device("cuda" if cuda_is_available() else "cpu")
         else:
@@ -576,11 +590,17 @@ class EchoStateNetworkCV:
         self.activation_function = activation_function
         self.input_weight_type = input_weight_type
         
-        if self.seed != None and type(self.bounds["n_nodes"]) == int:
-            self.reservoir_matrices = ReservoirBuildingBlocks(model_type = self.model_type, 
+        if "n_nodes" in self.bounds:
+            if type(["n_nodes"]) != int and type(["n_nodes"]) != float: #self.seed != None and 
+                self.reservoir_matrices = None
+            else:
+                self.reservoir_matrices = ReservoirBuildingBlocks(model_type = self.model_type, 
                                                               random_seed = self.seed,
                                                               n_nodes = self.bounds["n_nodes"],
                                                               input_weight_type = self.input_weight_type)
+        else:
+            assert 1 == 0, "You must enter n_nodes as an argument into bounds_dict. ie: '\{ n_nodes: 1000 \}'"
+            
         self.iteration_durations = []
 
         
@@ -942,16 +962,14 @@ class EchoStateNetworkCV:
             validate_y_2plot = validate_y.clone().detach().to("cpu")
             try:
                 self.ax[1].clear()
+                self.ax[0].clear()
             except:
                 pass
             #    self.ax[1].clear()
             #    #self.ax[1].plot(validate_y_2plot, alpha = 0.4, color = "blue") #[:steps_displayed]
             #plot 1:
             #log_resid = torch.log((validate_y - pred_)**2)
-            if self.count == 0:
-                labels = "best value", "all samples"
-            else:
-                labels = None, None
+            labels = "best value", "all samples"
             self.ax[0].plot(np.log(self.errorz_step), alpha = 0.5, color = "blue", label = labels[0] )
             #print(self.errorz)
             self.ax[0].plot(np.log(self.errorz), alpha = 0.2, color = "green", label = labels[1])
@@ -1025,7 +1043,7 @@ class EchoStateNetworkCV:
         #the algorithm is O(n) w.r.t. cv_samples.
         cv_samples = [self.objective_sampler() for i in range(self.cv_samples)]
         
-        data_args = [(cv_samples, parallel_arguments, params, i) for i, params in enumerate(parameter_lst)]
+        data_args = [(cv_samples, parallel_arguments, params, self.windowsOS, i) for i, params in enumerate(parameter_lst)]
 
         num_processes = parameters.shape[0]
 
@@ -1057,6 +1075,7 @@ class EchoStateNetworkCV:
             else:
                 Scores_.append(score)
             self.errorz.append(score)
+            #self.errorz_step.append(min(self.errorz))
             self.length_progress.append(self.state.length)
 
             
@@ -1130,9 +1149,10 @@ class EchoStateNetworkCV:
         self.validate_data(y, x, self.verbose)
         
         # Initialize new random state
-        self.reservoir_matrices.n_inputs_ = max(y.shape[1] - 1, 1) if type(x) == type(None) else x.shape[1]
-        
-        self.reservoir_matrices.gen_in_weights()
+        if self.reservoir_matrices != None:
+            self.reservoir_matrices.n_inputs_ = max(y.shape[1] - 1, 1) if type(x) == type(None) else x.shape[1]
+            
+            self.reservoir_matrices.gen_in_weights()
 
         self.random_state = Generator().manual_seed(self.seed + 2)
 
