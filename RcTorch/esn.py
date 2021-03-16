@@ -18,7 +18,7 @@ from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.priors import HorseshoePrior
 
-#torch
+#torch (we import functions from modules for small speed ups in performance)
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -49,17 +49,29 @@ from sklearn.linear_model import ElasticNet
 #pytorch elastic net regularization:
 #https://github.com/jayanthkoushik/torch-gel
 
+#TODO: unit test setting interactive to False.
+
+#TODO: repair esn documentation (go strait to reinier's, copy and make adjustments)
+
+#TODO: rename some pyesn variables.
+
+#TODO: improve documentation.
+
 
 def printn(param: torch.nn.parameter):
+    """TODO"""
     print(param._name_ + "\t \t", param.shape)
 
 def NRMSELoss(yhat,y):
+    """TODO"""
     return torch.sqrt(torch.mean((yhat-y)**2)/y**2)
 
 def sinsq(x):
+    """TODO"""
     return torch.square(torch.sin(x))
 
 def printc(string_, color_, end = '\n') :
+    """TODO"""
     colorz = {
           "header" : '\033[95m',
           "blue" : '\033[94m',
@@ -75,35 +87,83 @@ def printc(string_, color_, end = '\n') :
 
 
 class EchoStateNetwork(nn.Module):
-    def __init__(self, spectral_radius=0.9, n_nodes = 1000, activation_f = Tanh(), feedback = True,
-                 noise = 0, input_scaling = 0.5, leaking_rate = 0.99, regularization = 10 **-3, backprop = False,
-                 criterion = NLLLoss(), classification = False, output_size = 50, feedback_scaling = 0.5,
-                 bias = "uniform", connectivity = 0.1, random_state = 123,
-                 obs_idx = None, resp_idx = None, dtype = torch.float32,
-                 reservoir = None, model_type = "uniform", input_weight_type = None, approximate_reservoir = False,
-                 device = None, epochs = 7, PyESNnoise=0.001, l2_prop = 1, reg_lr = 10**-4, id_ = None):
+    """Class with all functionality to train Echo State Nets.
+    Builds and echo state network with the specified parameters.
+    In training, testing and predicting, x is a matrix consisting of column-wise time series features.
+    Y is a zero-dimensional target vector.
+    Parameters
+    ----------
+    n_nodes : int
+        Number of nodes that together make up the reservoir
+    input_scaling : float
+        The scaling of input values into the network
+    feedback_scaling : float
+        The scaling of feedback values back into the reservoir
+    spectral_radius : float
+        Sets the magnitude of the largest eigenvalue of the transition matrix (weight matrix)
+    leaking_rate : float
+        Specifies how much of the state update 'leaks' into the new state
+    connectivity : float
+        The probability that two nodes will be connected
+    regularization : float
+        The L2-regularization parameter used in Ridge regression for model inference
+    feedback : bool
+        Sets feedback of the last value back into the network on or off
+    random_seed : int
+        Seed used to initialize RandomState in reservoir generation and weight initialization
+    
+    
+    BACKPROP ARGUMENTS (not needed for the homework)
+    backprop: bool
+        if true the network initiates backpropogation.
+    classification: bool
+        if true the network assumes a categorical response, initiates backprop. Not yet working.
+    criterion: torch.nn.Loss function
+        loss function for backprogation training
+    epochs: int
+        the number of epochs to train the network for.
+    l2_prop: float (between 0 and 1)
+        this is the proportion of the l2 norm. if 1, ridge regression. if 0, lasso. in between it's elastic net regularization.
+        **Please note that a significant slowdown will occur with values other than 0**
+
+
+
+    Methods
+    -------
+    train(y, x=None, burn_in=100)
+        Train an Echo State Network
+    test(y, x=None, y_start=None, scoring_method='mse', alpha=1.)
+        Tests and scores against known output
+    predict(n_steps, x=None, y_start=None)
+        Predicts n values in advance
+    predict_stepwise(y, x=None, steps_ahead=1, y_start=None)
+        Predicts a specified number of steps into the future for every time point in y-values array (NOT IMPLIMENTED)
+
+    Arguments to be implimented later:
+        obs_idx = None, resp_idx = None, input_weight_type = None, model_type = "uniform", PyESNnoise=0.001, 
+        regularization lr: reg_lr = 10**-4, 
+        change bias back to "uniform"
+    """
+    def __init__(self, n_nodes = 1000, bias = 0, connectivity = 0.1, leaking_rate = 0.99, spectral_radius=0.9, #<-- important hyper-parameters
+                 regularization = 10 **-3, activation_f = Tanh(), feedback = True,                              #<-- activation, feedback
+                 input_scaling = 0.5, feedback_scaling = 0.5, noise = None,                                     #<-- hyper-params not needed for the hw
+                 approximate_reservoir = False, device = None, id_ = None, random_state = 123, reservoir = None, #<-- process args
+                 backprop = False, classification = False, criterion = NLLLoss(),  epochs = 7, l2_prop = 1): #<-- this line is backprop arguments
         super().__init__()
         
-        self.l2_prop = l2_prop 
-        self.reg_lr = reg_lr
-        self.dtype = dtype
-        self.epochs = epochs
+        #activation function
+        self.activation_function = activation_f
 
+        #cuda (gpu)
         if not device:
             self.device = torch_device("cuda" if cuda_is_available() else "cpu")
         else:
             self.device = device
 
-        #faster, approximate implimentation
-        self.approximate_reservoir = approximate_reservoir
-        self.reservoir = reservoir
-        
-        # backprop, feedback, random state and device ('cuda' or not)
-        self.backprop = backprop
-        self.feedback = feedback
+        # random state and default tensor arguments
         self.random_state = Generator(device=self.device).manual_seed(random_state)
         self.tensor_args = {"device": self.device, "generator" : self.random_state}
-        
+
         # hyper-parameters:
         self.bias = bias
         self.connectivity = connectivity
@@ -111,20 +171,23 @@ class EchoStateNetwork(nn.Module):
         self.input_scaling = input_scaling
         self.leaking_rate = [leaking_rate, 1 - leaking_rate]
         self.n_nodes = n_nodes
-        self.noise = noise #rand(self.n_nodes).view(-1,1) if noise else None
+        self.noise = noise
+        self.regularization = regularization
+        self.spectral_radius = spectral_radius
+
+        #Feedback
+        self.feedback = feedback
+
+        #For speed up: approximate implimentation and preloaded reservoir matrices.
+        self.approximate_reservoir, self.reservoir = approximate_reservoir, reservoir
+        
+        #backpropogation attributes:
+        self.backprop, self.epochs = backprop, epochs
+
+        #elastic net attributes: (default is 1, which is ridge regression for speed)
+        self.l2_prop = l2_prop
 
         self.id_ = id_
-        
-        self.spectral_radius = spectral_radius
-        self.regularization = regularization
-
-        #noise from pyesn — unlike my implimentation it happens outside the activation function. 
-        #TBD if this actually can improve the RC.
-        self.PyESNnoise = 0.001
-        self.external_noise = rand(self.n_nodes, device = self.device)
-
-        #activation
-        self.activation_function = activation_f
         
         #Reservoir layer
         self.LinRes = Linear(self.n_nodes, self.n_nodes, bias = False)
@@ -144,6 +207,12 @@ class EchoStateNetwork(nn.Module):
         if scaler == "standardize":
             self.scale   = self.normalize
             self.descale = self.denormalize
+
+        """TODO: additional hyper-parameters
+        noise from pyesn — unlike my implimentation it happens outside the activation function. 
+        TBD if this actually can improve the RC.
+        self.PyESNnoise = 0.001
+        self.external_noise = rand(self.n_nodes, device = self.device)
         colorz = {
           "header" : '\033[95m',
           "blue" : '\033[94m',
@@ -154,12 +223,13 @@ class EchoStateNetwork(nn.Module):
           'endc' : '\033[0m',
            'bold' :'\033[1m',
            "underline" : '\033[4m'
-        }
+        }"""
 
     def plot_reservoir(self):
-        sns.histplot(self.weights.numpy().view(-1,))
+        """Plot the network weights"""
+        sns.histplot(self.weights.cpu().numpy().view(-1,))
 
-    def forward(self, t, input_, current_state, output_pattern, verbose = False):
+    def forward(self, t, input_, current_state, output_pattern):
         """
         Arguments:
             t: the current timestep
@@ -169,14 +239,18 @@ class EchoStateNetwork(nn.Module):
         """
         # generator = self.random_state, device = self.device)  
         #assert 3 == 0, f'LinRes {self.LinRes(current_state).shape},'
-        
 
         preactivation = self.LinIn(input_) + self.bias_ + self.LinRes(current_state)
 
         if self.feedback:
             preactivation += self.LinFeedback(output_pattern)
-        #if self.noise:
-        #    preactivation += torch.normal(self.noise)
+        if self.noise != None:
+            noise_vec = torch.normal(mean = torch.zeros(self.n_nodes, device = self.device), 
+                                          std = torch.ones(self.n_nodes, device = self.device),
+                                          generator = self.random_state)
+            preactivation += noise_vec
+        #alternative: uniform noise
+        #self.noise = rand(self.n_nodes, **self.tensor_args).view(-1,1) if noise else None
 
         update = self.activation_function(preactivation) # + self.PyESNnoise * (self.external_noise - 0.5)
         next_state = self.leaking_rate[0] * update + self.leaking_rate[1] * current_state
@@ -275,7 +349,7 @@ class EchoStateNetwork(nn.Module):
             #weight
             if not self.reservoir or 'in_weights' not in dir(self.reservoir): 
                 
-                print("GENERATING IN WEIGHTS")
+                #print("GENERATING IN WEIGHTS")
 
                 in_weights = rand(n, m, generator = self.random_state, device = self.device, requires_grad = False)
                 in_weights =  in_weights * 2 - 1
@@ -304,13 +378,8 @@ class EchoStateNetwork(nn.Module):
                 bias = bias = zeros(n, 1, device = self.device)
                 bias = bias + self.bias
 
-                #bias += normal(mean = 0, std = self.noise, size = (n, m))
-
-            #bias = ones(n, m, device = self.device) * self.bias
-            if self.noise:
-                bias += normal(0, self.noise, device = self.device, size = (n,1))
+                #you could also add self.noise here.
             
-            # howdo we add in the noise?
             self.bias_ = bias
             if self.bias_.shape[1] == 1:
                 self.bias_ = self.bias_.squeeze()
@@ -328,17 +397,24 @@ class EchoStateNetwork(nn.Module):
 
         return (in_weights, feedback_weights)
     
-        
+    def check_device_cpu(self):
+        """TODO: make a function that checks if a function is on the cpu and moves it there if not"""
+        pass
+
     def display_in_weights(self):
+        """TODO"""
         sns.heatmap(self.in_weights)
 
     def display_out_weights(self):
+        """TODO"""
         sns.heatmap(self.out_weights)
 
     def display_res_weights(self):
+        """TODO"""
         sns.heatmap(self.weights)
 
     def plot_states(self, n= 10):
+        """TODO"""
         for i in range(n):
             plt.plot(list(range(len(self.state[:,i]))), RC.state[:,i], alpha = 0.8)
 
@@ -347,7 +423,7 @@ class EchoStateNetwork(nn.Module):
         """
         Train the network.
         
-        Arguments:
+        Arguments: TODO
             y: response matrix
             x: observer matrix
             burn in: obvious
@@ -390,7 +466,6 @@ class EchoStateNetwork(nn.Module):
         self.n_inputs = X.shape[1]
         self.n_outputs = y.shape[1]
         
-
         self.lastoutput = y[-1, :]
         self.lastinput = X[-1, :]
 
@@ -635,11 +710,15 @@ class EchoStateNetwork(nn.Module):
         else:
             y_predicted = self.predict_stepwise(y, x, steps_ahead=steps_ahead, y_start=y_start)[:final_t,:]
         
+        score = self.error(y_predicted, y, scoring_method, alpha=alpha)
+        
         # Return error
         if type(self.id_) == type(None):
-            return self.error(y_predicted, y, scoring_method, alpha=alpha), y_predicted.cpu().numpy()
+            #user friendly
+            return score, y_predicted.cpu().numpy()
         else:
-            return self.error(y_predicted, y, scoring_method, alpha=alpha), y_predicted, self.id_
+            #internal to esn_cv
+            return score, y_predicted, self.id_
 
 
     def predict(self, n_steps, x=None, y_start=None, continuation = True):
@@ -694,9 +773,6 @@ class EchoStateNetwork(nn.Module):
             lastoutput = zeros(self.n_outputs, **dev)
 
         inputs = vstack([lastinput, x]).view(-1, x.shape[1])
-
-        print("inputs", inputs.shape)
-
         states = zeros((n_samples + 1, self.n_nodes), **dev)
         states[0,:] = laststate
 
@@ -706,8 +782,7 @@ class EchoStateNetwork(nn.Module):
         for t in range(n_samples):
             states[t + 1, :] = self.forward(t, input_ = inputs[t + 1, :], 
                                                 current_state = states[t, :], 
-                                                output_pattern = outputs[t, :], 
-                                                verbose = True)
+                                                output_pattern = outputs[t, :])
             extended_state_spec = cat([states[t+1,:], inputs[t+1, :]])
             #print("extended_state_spec", extended_state_spec.shape)
             #print("self.LinOut.weight", self.LinOut.weight.shape)
@@ -1012,7 +1087,12 @@ class EchoStateNetwork(nn.Module):
         # Syntactic sugar
         return tuple(transformed) if len(transformed) > 1 else transformed[0]
 
+#TODO consider removing this. we're using sklearn after all
 class ElasticNetRegularization(nn.Module):
+    """TODO
+
+    Arguments: TODO
+    """
     def __init__(self, iterations, l2_proportion, regularization_parameter, learning_rate = None,
                        fail_tolerance = 10, val_prop = 0.2, ridge_weights = None, scaler = "normalize"):
         
@@ -1036,6 +1116,10 @@ class ElasticNetRegularization(nn.Module):
     #TODO: combine standardize and normalize into a class.
     
     def standardize(self, inputs = None, outputs = None, keep = False):
+        """TODO
+
+        Arguments: TODO
+        """
 
         if type(inputs) != type(None):
             if keep:
@@ -1052,6 +1136,11 @@ class ElasticNetRegularization(nn.Module):
         return normalized_tensor
 
     def normalize(self, inputs = None, outputs = None, keep = False):
+        
+        """TODO
+
+        Arguments: TODO
+        """
 
         if type(inputs) != type(None):
             if keep:
@@ -1067,6 +1156,10 @@ class ElasticNetRegularization(nn.Module):
         return std_tensor
     
     def denormalize(self, inputs = None, outputs = None):
+        """TODO
+
+        Arguments: TODO
+        """
         assert 1 ==0, "not properly implimented"
         if type(inputs) != type(None):
             denormalized_tensor = (inputs +self.input_means)*self.input_stds
@@ -1075,6 +1168,10 @@ class ElasticNetRegularization(nn.Module):
         return denormalized_tensor
     
     def elastic_net_loss(self, output, target):
+        """TODO
+
+        Arguments: TODO
+        """
         l1_loss_component = (1 - self.l2_prop) * torch.sum(torch.abs(self.linear.weight))
         if type(self.ridge_weights) == type(None):
             l2_loss_component = self.l2_prop * torch.sum(torch.square(self.linear.weight))
@@ -1084,6 +1181,10 @@ class ElasticNetRegularization(nn.Module):
         return loss
     
     def fit(self, X, y):
+        """TODO
+
+        Arguments: TODO
+        """
         self.n_features = X.shape[1]
         self.n_samples = X.shape[0]
         

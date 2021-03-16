@@ -43,6 +43,7 @@ def get_initial_points(dim, n_pts, device, dtype):
     return X_init
 
 def update_state(state, Y_next, dtype):
+    """#TODO"""
     #hayden lines
     #if Y_next.dim() == 0:
     #    Y_next = float(Y_next) #.unsqueeze(dim = 1)
@@ -80,6 +81,7 @@ def generate_batch(
     device = None
 
 ):
+    """#TODO"""
     assert acqf in ("ts", "ei")
     assert X.min() >= 0.0 and X.max() <= 1.0 and torch.all(torch.isfinite(Y))
     if n_candidates is None:
@@ -129,13 +131,18 @@ def generate_batch(
     return X_next
 
 class SparseBooklet:
+    """TODO
+
+    Arguments: TODO
+    """
     def __init__(self, book, keys):
         self.sparse_book = book
         self.sparse_keys_ = np.array(keys)
 
     def get_approx_preRes(self, connectivity_threshold):
-        """
-        You can use the matrix returned instead of...
+        """TODO
+
+        Arguments: TODO
         """
         #print("sparse_keys", self.sparse_keys_, "connectivity_threshold", connectivity_threshold   )
         key_ =  self.sparse_keys_[self.sparse_keys_ > connectivity_threshold][0]
@@ -143,6 +150,10 @@ class SparseBooklet:
         return val
 
 class GlobalSparseLibrary:
+    """TODO
+
+    Arguments: TODO
+    """
 
     def __init__(self, lb = -5, ub = 0, n_nodes = 1000, precision = None, 
                  flip_the_script = False):
@@ -179,6 +190,7 @@ class GlobalSparseLibrary:
         self.book_indices.append(random_seed)
 
     def getIndices(self):
+        """TODO"""
         return self.book_indices
 
     def get_approx_preRes(self, connectivity_threshold, index = 0):
@@ -232,6 +244,7 @@ class ReservoirBuildingBlocks:
 
 
     def gen_ran_res_params(self):
+        """TODO"""
 
         gen = Generator(device = self.device).manual_seed(self.random_seed)
         n = self.n_nodes_
@@ -273,6 +286,7 @@ class ReservoirBuildingBlocks:
         return val
 
     def gen_in_weights(self):
+        """TODO"""
 
         gen = Generator(device = self.device).manual_seed(self.random_seed)
         n, m = self.n_nodes_, self.n_inputs_
@@ -306,6 +320,11 @@ class ReservoirBuildingBlocks:
 __all__ = ['EchoStateNetworkCV']
 
 def execute_HRC(arguments, upper_error_limit = 10000, method = 'spawn'):
+    """TODO
+
+    Arguments: TODO
+    """
+
     #later call define_tr_val from within this function for speedup.
 
 
@@ -777,6 +796,10 @@ class EchoStateNetworkCV:
 
     ### Hayden Edit
     def define_tr_val(self, inputs):
+        """TODO
+
+        Arguments: TODO
+        """
         ####
         #print("Hayden edit: parameters: " + str(parameters))
         #print("Hayden edit: fixed parameters: " + str(self.fixed_parameters))
@@ -801,6 +824,10 @@ class EchoStateNetworkCV:
         return {"tr_x" : train_x, "tr_y": train_y, "val_x": validate_x, "val_y" : validate_y }
         
     def build_unq_dict_lst(self, lst1, lst2, key1 = "start_index", key2 = "random_seed"):
+        """TODO
+
+        Arguments: TODO
+        """
         dict_lst = []
         for i in range(len(lst1)):
             for j in range(len(lst2)):
@@ -886,6 +913,10 @@ class EchoStateNetworkCV:
         return self.define_tr_val(objective_inputs[0])
     
     def my_loss_plot(self, ax, pred, start_loc, valid, steps_displated = 500):#, pred = pred):
+        """TODO
+
+        Arguments: TODO
+        """
         pred_ = pred.cpu().numpy()
 
         ax.plot(range(len(valid)), valid, color = 'blue', label = "train")
@@ -900,14 +931,17 @@ class EchoStateNetworkCV:
         plt.legend()
     
     def train_plot_update(self, pred_, validate_y, steps_displayed, elastic_losses = None):
+        """TODO
+
+        Arguments: TODO
+        """
         
         #plotting
         if self.interactive:
             pred_2plot = pred_.clone().detach().to("cpu")
             validate_y_2plot = validate_y.clone().detach().to("cpu")
             try:
-                if len(self.errorz) % 5 == 0:
-                    self.ax[1].clear()
+                self.ax[1].clear()
             except:
                 pass
             #    self.ax[1].clear()
@@ -926,36 +960,23 @@ class EchoStateNetworkCV:
             self.ax[0].set_xlabel("Bayesian Optimization step")
             self.ax[0].legend()
             
-            #plot 2:
-            ######### Another idea is to have the middle plot do what ax[2] is doing and have the far right plot display the best guess yet.
+            log2 = np.log(2)
+            self.ax[1].axhline(np.log(self.state.length_max)/log2, color = 'green', label = 'max length')
+            self.ax[1].set_title("TURBO state")
+            self.ax[1].plot(np.log(self.length_progress)/log2, color = 'blue', label = 'current length')
+            self.ax[1].axhline(np.log(self.state.length_min)/log2, color = 'red', label = 'target length')
+            self.ax[1].legend()
 
-            #self.my_loss_plot(ax = self.ax[1], pred = pred_2plot, valid = validate_y_2plot, start_loc = 1800)
-            """
-            try:
-                if l2_prop != 1:
-                    self.ax[1].plot(elastic_losses )#torch.log
-
-                    #self.ax[1].set_ylim(validate_y.min().item() - 0.1, validate_y.max().item() + 0.1 )
-                    #self.ax[1].set_ylim(-1, 1)
-                    self.ax[1].set_title("elastic net regularization loss")
-                    self.ax[1].set_ylabel("y")
-                    self.ax[1].set_xlabel("time step")
-            except:
-                pass
-            """
             #self.ax[1].set_ylim(self.y.min().item() - 0.1, self.y.max().item() )         
 
             #plot 3:
             self.ax[2].clear()
-            self.ax[2].plot(validate_y_2plot[:steps_displayed].to("cpu"), alpha = 0.5, color = "blue", label = "train")
-
-            if pred_.shape[0] == 1:
-                self.ax[2].plot(pred_2plot[:steps_displayed], alpha = 0.3, color = "red", label = "latest prediction")
-            else:
-                self.ax[2].plot(pred_2plot, alpha = 0.3, color = "red") #[pred_.shape[0] - 1, :]
+            self.ax[2].plot(validate_y_2plot[:steps_displayed].to("cpu"), alpha = 0.5, color = "blue", label = "val set")
+            self.ax[2].plot(pred_2plot[:steps_displayed], alpha = 0.3, color = "red", label = "latest pred")
+            
             #ax[2].plot(pred_[:steps_displayed], alpha = 0.5, color = "red", label = "pred")
             self.ax[2].set_ylim(self.y.min().item() - 0.1, self.y.max().item() )
-            self.ax[2].set_title("Most recent validation prediction on the test set")
+            self.ax[2].set_title("Most recent validation prediction vs validation set")
             self.ax[2].set_ylabel("y")
             self.ax[2].set_xlabel("time step")
             pl.legend()
@@ -986,8 +1007,8 @@ class EchoStateNetworkCV:
 
         declaration_args = {'activation_f' : self.activation_function,
                             'backprop' : self.backprop,
-                            'model_type' : self.model_type,
-                            'input_weight_type' : self.input_weight_type, 
+                            #'model_type' : self.model_type,
+                            #'input_weight_type' : self.input_weight_type, 
                             'approximate_reservoir' : self.approximate_reservoir,
                             "device" : self.device,
                             "reservoir" : self.reservoir_matrices 
@@ -1017,11 +1038,7 @@ class EchoStateNetworkCV:
             Pool.close()
             Pool.join()
 
-            #results = sorted(results, key=lambda x: x[2]) Later if we decide to run cv_samples in parallel reactivate this line
-
-            #results = [(result[0], result[1]) for result in results]
-
-            #scores, preds = list(zip(*results))
+            results = sorted(results, key=lambda x: x[2]) 
 
             results = [(result[0], result[1]) for result in results]
             scores, preds = list(zip(*results)) 
@@ -1040,10 +1057,13 @@ class EchoStateNetworkCV:
             else:
                 Scores_.append(score)
             self.errorz.append(score)
+            self.length_progress.append(self.state.length)
+
             
         #if self.count % self.batch_size == 0:
-        self.train_plot_update(pred_ = preds[0]["pred"], validate_y = preds[0]["val_y"], 
-            steps_displayed = preds[0]["pred"].shape[0]) #l2_prop  = self.l2_prop) #elastic_losses = RC.losses, 
+        if self.interactive:
+            self.train_plot_update(pred_ = preds[0]["pred"], validate_y = preds[0]["val_y"], 
+                steps_displayed = preds[0]["pred"].shape[0]) #l2_prop  = self.l2_prop) #elastic_losses = RC.losses, 
 
         Scores_ = tensor(Scores_, dtype = torch.float32, device = self.device).unsqueeze(-1)
 
@@ -1135,7 +1155,7 @@ class EchoStateNetworkCV:
         if self.interactive:
             self.fig, self.ax = pl.subplots(1,3, figsize = (16,4))
             
-        self.errorz, self.errorz_step = [], []
+        self.errorz, self.errorz_step, self.length_progress = [], [], []
         dim = len(self.free_parameters)
         self.state = TurboState(dim, length_min = self.length_min, 
                                 batch_size=self.batch_size, success_tolerance = self.success_tolerance)

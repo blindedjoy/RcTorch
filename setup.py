@@ -2,7 +2,7 @@ from distutils.core import setup
 setup(
   name = 'RcTorch',         # How you named your package folder (MyLib)
   packages = ['RcTorch'],   # Chose the same as "name"
-  version = '0.15',      # Start with a small number and increase it with every change you make
+  version = '0.17',      # Start with a small number and increase it with every change you make
   license='Harvard',        # Chose a license from here: https://help.github.com/articles/licensing-a-repository
   description = '',   # Give a short description about your library
   author = 'Hayden Joy',                   # Type in your name
@@ -19,9 +19,9 @@ setup(
           'seaborn',
           'pathlib',
           'matplotlib',
-          'torch==1.7.1',
-          'torchvision==0.8.2',
-          'torchaudio==0.7.2',
+          'torch',#==1.7.1',
+          'torchvision',#==0.8.2',
+          'torchaudio', ##==0.7.2',
           'gpytorch',
           'botorch'
       ],
