@@ -440,7 +440,7 @@ class EchoStateNetwork(nn.Module):
         if len(y.shape) == 1:
             y = y.view(-1, 1)
             
-        if X:
+        if type(X) != None:
             if type(X) == np.ndarray:
                 X = torch.tensor(X, device = self.device, dtype = self.dtype, requires_grad = False)
             if X.device != self.device:
@@ -709,7 +709,7 @@ class EchoStateNetwork(nn.Module):
             y = y.view(-1, 1)
         if y.device != self.device:
             y = y.to(self.device)
-        if x:
+        if type(x) != None:
             if type(x) == np.ndarray:
                 x = tensor(x, device = self.device)
             if x.device != self.device:

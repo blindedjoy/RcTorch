@@ -1161,7 +1161,7 @@ class EchoStateNetworkCV:
         #self.y = y.type(torch.float32).to(self.device)  
         if type(y) != type(torch.tensor(0)):
              y = torch.tensor(y)
-        if x:
+        if type(x) != None:
             if type(x) != type(torch.tensor(0)):
                 x = torch.tensor(x)
 

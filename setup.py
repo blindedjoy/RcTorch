@@ -2,7 +2,7 @@ from distutils.core import setup
 setup(
   name = 'RcTorch',         # How you named your package folder (MyLib)
   packages = ['RcTorch'],   # Chose the same as "name"
-  version = '0.38',      # Start with a small number and increase it with every change you make
+  version = '0.4',      # Start with a small number and increase it with every change you make
   license='Harvard',        # Chose a license from here: https://help.github.com/articles/licensing-a-repository
   description = '',   # Give a short description about your library
   author = 'Hayden Joy',                   # Type in your name
