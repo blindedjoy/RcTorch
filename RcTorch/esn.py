@@ -439,33 +439,32 @@ class EchoStateNetwork(nn.Module):
             y = y.to(self.device)
         if len(y.shape) == 1:
             y = y.view(-1, 1)
-            
-        if type(X) != None:
-            if type(X) == np.ndarray:
+        
+        try:
+            #X.any() this will fail if it is not np.array or a tensor (ie if it is bad input or None.)
+            if type(X.any()) == np.ndarray:
                 X = torch.tensor(X, device = self.device, dtype = self.dtype, requires_grad = False)
             if X.device != self.device:
                 X = X.to(self.device)
             if len(X.shape) == 1:
                 X = X.view(-1, 1)
-
-
+                orig_X = X.clone().detach()
+        except:
+            if not X:
+                X = ones(*y.shape, device = self.device)
+                orig_X = X.clone().detach()
+        else:
+            assert 0==5, "your input must  be a tensor, np.array or None."
+            
         start_index = 1 if self.feedback else 0 
         rows = y.shape[0] - start_index
         
         # Normalize inputs and outputs
         y = self.scale(outputs=y, keep=True)
         
-        try:
-            orig_X = X.clone().detach()
-        except:
-            if not X:
-                X = ones(*y.shape, device = self.device)
-                orig_X = X.clone().detach()
-
+        #protect against input that is a vector of ones.
         if not X is None:
-
             if X.std() != 0:
-
                 X = self.scale(inputs=X, keep=True)
             else:
                 self._input_stds = None
@@ -494,7 +493,6 @@ class EchoStateNetwork(nn.Module):
         self.state._name_ = "state"
 
         current_state = self.state[-1] 
-
 
         if not self.backprop:
             self.LinOut.requires_grad_, self.LinIn.requires_grad_, self.LinFeedback.requires_grad_ = False, False, False
@@ -709,12 +707,22 @@ class EchoStateNetwork(nn.Module):
             y = y.view(-1, 1)
         if y.device != self.device:
             y = y.to(self.device)
-        if type(x) != None:
-            if type(x) == np.ndarray:
+
+        try:
+            #X.any() this will fail if it is not np.array or a tensor (ie if it is bad input or None.)
+            if type(x.any()) == np.ndarray:
                 x = tensor(x, device = self.device)
             if x.device != self.device:
                 x = x.to(self.device)
-
+            if len(x.shape) == 1:
+                x = x.view(-1, 1)
+                orig_x = x.clone().detach()
+        except:
+            if not x:
+                x = ones(*y.shape, device = self.device)
+                orig_x = x.clone().detach()
+        else:
+            assert 0==5, "your input must  be a tensor, np.array or None."
         
         # Run prediction
         final_t =y.shape[0]

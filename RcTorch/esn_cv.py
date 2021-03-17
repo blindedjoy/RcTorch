@@ -1159,11 +1159,28 @@ class EchoStateNetworkCV:
         # Temporarily store the data
         #self.x = x.type(torch.float32).to(self.device) if x is not None else torch.ones(*y.shape, device = self.device)
         #self.y = y.type(torch.float32).to(self.device)  
-        if type(y) != type(torch.tensor(0)):
-             y = torch.tensor(y)
-        if type(x) != None:
-            if type(x) != type(torch.tensor(0)):
-                x = torch.tensor(x)
+        if type(y) == np.ndarray:
+             y = torch.tensor(y, device = self.device)
+        if len(y.shape) == 1:
+            y = y.view(-1, 1)
+        if y.device != self.device:
+            y = y.to(self.device)
+
+        try:
+            #X.any() this will fail if it is not np.array or a tensor (ie if it is bad input or None.)
+            if type(x.any()) == np.ndarray:
+                x = tensor(x, device = self.device)
+            if x.device != self.device:
+                x = x.to(self.device)
+            if len(x.shape) == 1:
+                x = x.view(-1, 1)
+                orig_x = x.clone().detach()
+        except:
+            if not x:
+                x = ones(*y.shape, device = self.device)
+                orig_x = x.clone().detach()
+        else:
+            assert 0==5, "your input must  be a tensor, np.array or None."
 
         self.x = x.type(torch.float32) if x is not None else None #torch.ones(*y.shape)
         self.y = y.type(torch.float32)                           
