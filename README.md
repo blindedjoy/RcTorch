@@ -9,8 +9,8 @@ This library is an extension and expansion of the previous library written by Re
 >2020-2021 Harvard extension, Author: Hayden Joy
 
 Contains:
-- Vanilla ESN and Simple Cyclic Reservoir architectures.
-- Bayesian Optimization with optimized routines for Echo State Nets through `GPy`.
+- A Vanilla ESN Reservoir architectures.
+- Bayesian Optimization with optimized routines for Echo State Nets through `Botorch` (GPU optimized).
 - Clustering routines to cluister time series by optimized model.
 
 Reference:  
@@ -20,7 +20,7 @@ https://arxiv.org/abs/1903.05071
 ## Example Use
 ```python
 # Load data
-data = np.loadtxt('example_data/MackeyGlass_t17.txt')
+data = np.loadtxt('https://raw.githubusercontent.com/RomainPastureau/Reservoir-Jupyter/master/MackeyGlass_t17.txt')
 train = data[:4000].reshape(-1, 1)
 test = data[4000:4100].reshape(-1, 1)
 
