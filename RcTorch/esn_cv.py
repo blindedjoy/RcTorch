@@ -28,7 +28,7 @@ class TurboState:
     failure_counter: int = 0
     failure_tolerance: int = float("nan")  # Note: Post-initialized
     success_counter: int = 0
-    success_tolerance: int = 3  # Note: The original paper uses 3
+    success_tolerance: int = 10# Note: The original paper uses 3
     best_value: float = -float("inf")
     restart_triggered: bool = False
 
@@ -326,8 +326,6 @@ def execute_HRC(arguments, upper_error_limit = 10000):
     """
 
     #later call define_tr_val from within this function for speedup.
-
-
     #score, pred_ = self.define_tr_val() #just get the train and test...
     #assert 1 == 0, "made it" + str(parallel_arguments)
     cv_samples, parallel_arguments, parameters, windowsOS, id_ = arguments
@@ -339,10 +337,8 @@ def execute_HRC(arguments, upper_error_limit = 10000):
         cv_samples_ = []
         for i, cv_sample in enumerate(cv_samples):
             if  cv_sample["tr_y"].device != device:
-                if cv_sample["tr_x"]:
-                     train_x, validate_x = cv_sample["tr_x"].to(device), cv_sample["val_x"].to(device)
-                else:
-                    train_x, validate_x = None, None
+                #if cv_sample["tr_x"]:
+                train_x, validate_x = cv_sample["tr_x"].to(device), cv_sample["val_x"].to(device)
                 train_y, validate_y  = cv_sample["tr_y"].to(device), cv_sample["val_y"].to(device)
             else:
                 #consider not sending the cv_sample["x"] if it's a pure prediction.
@@ -391,10 +387,10 @@ def execute_HRC(arguments, upper_error_limit = 10000):
 
         #if device == torch.device('cuda'):
         #    torch.cuda.empty_cache()
-    score = min(score, tensor(upper_error_limit, device = device))
+    score = min(score, tensor(upper_error_limit, device = device, requires_grad = False))
 
     if torch.isnan(score):
-        score_ = tensor(upper_error_limit, device = device)
+        score_ = tensor(upper_error_limit, device = device, requires_grad  = False)
 
     del RC;
     score_mu = score_/len(cv_samples)
@@ -509,12 +505,12 @@ class EchoStateNetworkCV:
     """
 
     def __init__(self, bounds, subsequence_length, model=EchoStateNetwork, initial_samples=50,
-                 validate_fraction=0.2, steps_ahead=1, batch_size=1, cv_samples=1,
+                 validate_fraction=0.2, steps_ahead=None, batch_size=1, cv_samples=1,
                  scoring_method='nrmse', esn_burn_in=0, random_seed=None, esn_feedback=None, 
                  verbose=True, model_type = "random", activation_function = nn.Tanh(), 
                  input_weight_type = "uniform", backprop = False, interactive = False, 
-                 approximate_reservoir = False, failure_tolerance = 1, length_min = 2**(-9), 
-                 device = None, learning_rate = 0.005, success_tolerance = 3, dtype = torch.float32,
+                 approximate_reservoir = False, length_min = 2**(-9), 
+                 device = None, learning_rate = 0.005, success_tolerance = 7, dtype = torch.float32,
                  windowsOS = False):
         
         #### uncompleted tasks:
@@ -543,7 +539,6 @@ class EchoStateNetworkCV:
         #turbo variables
         self.backprop = backprop
         self.batch_size = batch_size
-        self.failure_tolerance = failure_tolerance
         self.length_min = length_min
         self.success_tolerance = success_tolerance
 
@@ -661,7 +656,7 @@ class EchoStateNetworkCV:
         
         scaled_bounds = cat([zeros(1,n_hyperparams, device = self.device), 
                                    ones(1, n_hyperparams, device = self.device)], 0)
-        return scaled_bounds, tensor(scalings, device = self.device), tensor(intercepts, device = self.device) #torch.adjustment required
+        return scaled_bounds, tensor(scalings, device = self.device, requires_grad = False), tensor(intercepts, device = self.device, requires_grad = False) #torch.adjustment required
 
     def denormalize_bounds(self, normalized_arguments):
         """Denormalize arguments to feed into model.
@@ -721,7 +716,7 @@ class EchoStateNetworkCV:
                 arguments[var] = 10. ** arguments[var]  # Log scale correction
 
         if 'n_nodes' in arguments:
-            arguments['n_nodes'] = tensor(arguments['n_nodes'], dtype = torch.int32, device = self.device)  # Discretize #torch.adjustment required
+            arguments['n_nodes'] = tensor(arguments['n_nodes'], dtype = torch.int32, device = self.device, requires_grad = False)  # Discretize #torch.adjustment required
 
         if not self.feedback is None:
             arguments['feedback'] = self.feedback
@@ -887,7 +882,7 @@ class EchoStateNetworkCV:
         viable_stop = training_y.shape[0] - self.subsequence_length
 
         # Get sample lengths
-        self.validate_length = torch.round(tensor(self.subsequence_length * self.validate_fraction)).type(torch.int32)
+        self.validate_length = torch.round(tensor(self.subsequence_length * self.validate_fraction, requires_grad  = False)).type(torch.int32)
         self.train_length = self.subsequence_length - self.validate_length
 
         # Score storage
@@ -1084,7 +1079,7 @@ class EchoStateNetworkCV:
             self.train_plot_update(pred_ = preds[0]["pred"], validate_y = preds[0]["val_y"], 
                 steps_displayed = preds[0]["pred"].shape[0]) #l2_prop  = self.l2_prop) #elastic_losses = RC.losses, 
 
-        Scores_ = tensor(Scores_, dtype = torch.float32, device = self.device).unsqueeze(-1)
+        Scores_ = tensor(Scores_, dtype = torch.float32, device = self.device, requires_grad = False).unsqueeze(-1)
 
         #print('success_tolerance', self.state.success_counter)
         #print('failure_tolerance', self.state.failure_counter)
@@ -1159,28 +1154,15 @@ class EchoStateNetworkCV:
         # Temporarily store the data
         #self.x = x.type(torch.float32).to(self.device) if x is not None else torch.ones(*y.shape, device = self.device)
         #self.y = y.type(torch.float32).to(self.device)  
+        init_device = self.device if not self.windowsOS else torch.device('cpu')
         if type(y) == np.ndarray:
-             y = torch.tensor(y, device = self.device)
+            y = torch.tensor(y, device = init_device, requires_grad = False)
         if len(y.shape) == 1:
             y = y.view(-1, 1)
         if y.device != self.device:
-            y = y.to(self.device)
+            y = y.to(init_device)
 
-        try:
-            #X.any() this will fail if it is not np.array or a tensor (ie if it is bad input or None.)
-            if type(x.any()) == np.ndarray:
-                x = tensor(x, device = self.device)
-            if x.device != self.device:
-                x = x.to(self.device)
-            if len(x.shape) == 1:
-                x = x.view(-1, 1)
-                orig_x = x.clone().detach()
-        except:
-            if not x:
-                x = ones(*y.shape, device = self.device)
-                orig_x = x.clone().detach()
-        else:
-            assert 0==5, "your input must  be a tensor, np.array or None."
+        x = check_x(X = x, y = y, device = self.device)
 
         self.x = x.type(torch.float32) if x is not None else None #torch.ones(*y.shape)
         self.y = y.type(torch.float32)                           

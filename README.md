@@ -1,10 +1,12 @@
 RcTorch
 =========
-A Python 3 toolset for creating and optimizing Echo State Networks.
+A Python 3 toolset for creating and optimizing Echo State Networks. 
+This library is an extension and expansion of the previous library written by Reinier Maat: https://github.com/1Reinier/Reservoir
 
 >Author: Reinier Maat, Nikos Gianniotis  
 >License: MIT  
 >2016-2019  
+>2020-2021 Harvard extension, Author: Hayden Joy
 
 Contains:
 - Vanilla ESN and Simple Cyclic Reservoir architectures.
@@ -33,13 +35,14 @@ bounds = {'input_scaling': (0, 1),
 
 # Set optimization parameters
 esn_cv = EchoStateNetworkCV(bounds=bounds,
-                            initial_samples=100,
+                            initial_samples=25,
                             subsequence_length=1000,
-                            eps=1e-3,
-                            cv_samples=1,
-                            max_iterations=1000,
-                            scoring_method='tanh',
-                            verbose=True)
+                            batch_size=4,
+                            cv_samples=4,
+                            random_seed=109,
+                            interactive=True,
+                            esn_feedback=True,
+                            scoring_method='nmse')
 
 # Optimize
 best_arguments = esn_cv.optimize(y=train)
@@ -47,10 +50,10 @@ best_arguments = esn_cv.optimize(y=train)
 # Build best model
 esn = EchoStateNetwork(**best_arguments)
 esn.train(y=train)
-score = esn.test(y=test, scoring_method='nrmse')
+score, prediction = esn.test(y=test, scoring_method='nrmse')
 
 # Diagnostic plot
-plt.plot(esn.predict(100), label='Predicted')
+plt.plot(prediction, label='Predicted')
 plt.plot(test, label='Ground truth')
 plt.title('Prediction on next 100 steps')
 plt.legend()

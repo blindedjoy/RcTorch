@@ -1,4 +1,0 @@
-pytest-cov
-pytest
-numpy
-matplotlib

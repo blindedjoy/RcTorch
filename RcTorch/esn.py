@@ -56,6 +56,20 @@ from sklearn.linear_model import ElasticNet
 #TODO: rename some pyesn variables.
 
 #TODO: improve documentation.
+def check_x(X, y, device, dtype = torch.float32, req_grad = False):
+    try:
+        if X is None:
+            X = ones(*y.shape, device = device, requires_grad = req_grad)
+            orig_X = X.clone().detach()
+        if type(X) == np.ndarray:
+            X = torch.tensor(X, device = device, dtype = dtype, requires_grad = req_grad)
+    except:
+        if type(X) == np.ndarray:
+            X = torch.tensor(X, device = device, dtype = dtype, requires_grad = req_grad)
+    if len(X.shape) == 1:
+        X = X.view(-1, 1)
+        orig_X = X.clone().detach()
+    return X
 
 
 def printn(param: torch.nn.parameter):
@@ -146,7 +160,7 @@ class EchoStateNetwork(nn.Module):
     """
     def __init__(self, n_nodes = 1000, bias = 0, connectivity = 0.1, leaking_rate = 0.99, spectral_radius=0.9, #<-- important hyper-parameters
                  regularization = None, activation_f = Tanh(), feedback = True,                              #<-- activation, feedback
-                 input_scaling = 0.5, feedback_scaling = 0.5, noise = None,                                     #<-- hyper-params not needed for the hw
+                 input_scaling = 0.5, feedback_scaling = 0.5, noise = 0.001,                                     #<-- hyper-params not needed for the hw
                  approximate_reservoir = False, device = None, id_ = None, random_state = 123, reservoir = None, #<-- process args
                  backprop = False, classification = False, criterion = NLLLoss(),  epochs = 7, l2_prop = 1): #<-- this line is backprop arguments
         super().__init__()
@@ -163,7 +177,8 @@ class EchoStateNetwork(nn.Module):
 
         # random state and default tensor arguments
         self.random_state = Generator(device=self.device).manual_seed(random_state)
-        self.tensor_args = {"device": self.device, "generator" : self.random_state}
+        self.no_grad_ = {"requires_grad" : False}
+        self.tensor_args = {"device": self.device, "generator" : self.random_state, **self.no_grad_}
 
         # hyper-parameters:
         self.bias = bias
@@ -251,9 +266,10 @@ class EchoStateNetwork(nn.Module):
 
         update = self.activation_function(preactivation) # + self.PyESNnoise * (self.external_noise - 0.5)
         if self.noise != None:
-            noise_vec = torch.normal(mean = torch.zeros(self.n_nodes, device = self.device), 
-                                          std = torch.ones(self.n_nodes, device = self.device),
-                                          generator = self.random_state)* self.noise
+            #noise_vec = torch.normal(mean = torch.zeros(self.n_nodes, device = self.device), 
+            #                              std = torch.ones(self.n_nodes, device = self.device),
+            #                              generator = self.random_state)* self.noise
+            noise_vec = rand(self.n_nodes, **self.tensor_args) * self.noise
             update += noise_vec 
         next_state = self.leaking_rate[0] * update + self.leaking_rate[1] * current_state
         return next_state
@@ -330,7 +346,7 @@ class EchoStateNetwork(nn.Module):
         self.LinRes.weight = self.weights
         
         if load_failed == 1 or not self.reservoir:
-            self.state = zeros(1, self.n_nodes, device=torch_device(self.device))
+            self.state = zeros(1, self.n_nodes, device=torch_device(self.device), **self.no_grad_)
         else:
             self.state = self.reservoir.state
 
@@ -377,7 +393,7 @@ class EchoStateNetwork(nn.Module):
                 #random uniform distributed bias
                 bias = bias * 2 - 1
             elif type(self.bias) in [type(1), type(1.5)]:
-                bias = bias = zeros(n, 1, device = self.device)
+                bias = bias = zeros(n, 1, device = self.device, **self.no_grad_)
                 bias = bias + self.bias
 
                 #you could also add self.noise here.
@@ -433,28 +449,19 @@ class EchoStateNetwork(nn.Module):
             learning_rate: 
             verbose:
         """
+        dev = {"device" : self.device, "dtype" : torch.float32, "requires_grad": False}
         if type(y) == np.ndarray:
-             y = torch.tensor(y, device = self.device, dtype = self.dtype, requires_grad = False)
+             y = torch.tensor(y, **dev)
         if y.device != self.device:
             y = y.to(self.device)
         if len(y.shape) == 1:
             y = y.view(-1, 1)
-        
-        try:
-            #X.any() this will fail if it is not np.array or a tensor (ie if it is bad input or None.)
-            if type(X.any()) == np.ndarray:
-                X = torch.tensor(X, device = self.device, dtype = self.dtype, requires_grad = False)
-            if X.device != self.device:
-                X = X.to(self.device)
-            if len(X.shape) == 1:
-                X = X.view(-1, 1)
-                orig_X = X.clone().detach()
-        except:
-            if not X:
-                X = ones(*y.shape, device = self.device)
-                orig_X = X.clone().detach()
-        else:
-            assert 0==5, "your input must  be a tensor, np.array or None."
+
+        X = check_x(X, y, device = self.device)
+        if X.device != self.device:
+            X = X.to(self.device)
+            if not self.backprop:
+                X.requires_grad = False
             
         start_index = 1 if self.feedback else 0 
         rows = y.shape[0] - start_index
@@ -463,12 +470,11 @@ class EchoStateNetwork(nn.Module):
         y = self.scale(outputs=y, keep=True)
         
         #protect against input that is a vector of ones.
-        if not X is None:
-            if X.std() != 0:
-                X = self.scale(inputs=X, keep=True)
-            else:
-                self._input_stds = None
-                self._input_means = None
+        if X.std() != 0:
+            X = self.scale(inputs=X, keep=True)
+        else:
+            self._input_stds = None
+            self._input_means = None
         
         self.n_outputs = y.shape[1]
         self.n_inputs = X.shape[1]
@@ -489,7 +495,7 @@ class EchoStateNetwork(nn.Module):
             self.out_activation = self.LinOut
         
         #build the state matrix:
-        self.state = zeros((X.shape[0], self.n_nodes), device = self.device).detach()
+        self.state = zeros((X.shape[0], self.n_nodes), device = self.device, **self.no_grad_).detach()
         self.state._name_ = "state"
 
         current_state = self.state[-1] 
@@ -511,9 +517,7 @@ class EchoStateNetwork(nn.Module):
                                                        current_state = self.state[t-1,:], 
                                                        output_pattern = y[t-1]).squeeze()
 
-                #print("self.state", self.state)
-                #print("X", X)
-                #print("ones", ones(*X.shape))
+                
                 extended_states = hstack((self.state, X))
                 extended_states._name_ = "complete_data"
 
@@ -526,11 +530,11 @@ class EchoStateNetwork(nn.Module):
                     weight = matmul(pinv, train_y)
                 elif self.l2_prop == 1:
                     #print("ridge regularizing")
-                    ones_col = ones(train_x.shape[0], 1, device = self.device)
+                    ones_col = ones(train_x.shape[0], 1, **dev)
                     train_x = hstack((ones_col, train_x))
                     
                     ridge_x = matmul(train_x.T, train_x) + \
-                                       self.regularization * eye(train_x.shape[1], device = self.device)
+                                       self.regularization * eye(train_x.shape[1], **dev)
                     ridge_y = matmul(train_x.T, train_y)
                     ridge_x_inv = pinverse(ridge_x)
                     weight = ridge_x_inv @ ridge_y
@@ -556,8 +560,8 @@ class EchoStateNetwork(nn.Module):
                     print("train_x", train_x.shape, "_____________ train_y", train_y.shape)
                     regr.fit(train_x.numpy(), train_y.numpy())
 
-                    weight = tensor(regr.coef_, device = self.device)
-                    bias = tensor(regr.intercept_, device =self.device)
+                    weight = tensor(regr.coef_, device = self.device, **self.no_grad_)
+                    bias = tensor(regr.intercept_, device =self.device, **self.no_grad_)
                 
                 self.LinOut.weight = Parameter(weight.view(-1,1), requires_grad = False)
                 if type(bias) != type(None):
@@ -702,33 +706,21 @@ class EchoStateNetwork(nn.Module):
         self.steps_ahead = steps_ahead
 
         if type(y) == np.ndarray:
-             y = torch.tensor(y, device = self.device)
+             y = torch.tensor(y, **self.no_grad_)
         if len(y.shape) == 1:
             y = y.view(-1, 1)
         if y.device != self.device:
             y = y.to(self.device)
 
-        try:
-            #X.any() this will fail if it is not np.array or a tensor (ie if it is bad input or None.)
-            if type(x.any()) == np.ndarray:
-                x = tensor(x, device = self.device)
-            if x.device != self.device:
-                x = x.to(self.device)
-            if len(x.shape) == 1:
-                x = x.view(-1, 1)
-                orig_x = x.clone().detach()
-        except:
-            if not x:
-                x = ones(*y.shape, device = self.device)
-                orig_x = x.clone().detach()
-        else:
-            assert 0==5, "your input must  be a tensor, np.array or None."
+        x = check_x(X =x, y = y, device = self.device)
+        if x.device != self.device:
+            x = x.to(self.device)
         
         # Run prediction
         final_t =y.shape[0]
         if steps_ahead is None:
             if x is None:
-                x = ones(*y.shape, device = self.device)
+                x = ones(*y.shape, **dev)
             y_predicted = self.predict(n_steps = y.shape[0], x=x, y_start=y_start)
             #printc("predicting "  + str(y.shape[0]) + "steps", 'blue')
         else:
@@ -773,9 +765,8 @@ class EchoStateNetwork(nn.Module):
         if not x is None and type(self._input_means) != type(None):
             x = self.scale(inputs=x)
 
-        dev = {"device" : self.device, "dtype" : torch.float32}
+        dev = {"device" : self.device, "dtype" : torch.float32, "requires_grad": False}
 
-        
         # Set parameters
         if self.LinOut.weight.shape[0] == 1:
             y_predicted = zeros( (n_steps,), **dev)
@@ -804,18 +795,18 @@ class EchoStateNetwork(nn.Module):
             [lastoutput, zeros((n_samples, self.n_outputs), **dev)])
 
         for t in range(n_samples):
-            states[t + 1, :] = self.forward(t, input_ = inputs[t + 1, :], 
+            states[t + 1, :] = self.forward(t, input_ = inputs[t+1, :], #+1
                                                 current_state = states[t, :], 
                                                 output_pattern = outputs[t, :])
             extended_state_spec = cat([states[t+1,:], inputs[t+1, :]])
             #print("extended_state_spec", extended_state_spec.shape)
             #print("self.LinOut.weight", self.LinOut.weight.shape)
             #print("self.LinOut.bias", self.LinOut.bias.shape)
-            bias_tensor = ones(*self.LinOut.weight.shape).squeeze()*self.LinOut.bias.item()
+            bias_tensor = ones(*self.LinOut.weight.shape, **dev).squeeze()*self.LinOut.bias.item()
             #print("Linout", self.LinOut.weight.shape)
             #print("bias_tensor", bias_tensor.shape)
             #print("extended_state_spec", extended_state_spec.shape)
-            outputs[t+1,:] = dot(self.LinOut.weight.squeeze(),extended_state_spec.squeeze())
+            outputs[t+1,:] = dot(self.LinOut.weight.squeeze(), extended_state_spec.squeeze())
             #print("outputs[t+1,:].shape", outputs[t+1,:].shape)
             #print("bias_tensor", bias_tensor.shape)
             outputs[t+1,:] = outputs[t+1,:] + float(self.LinOut.bias) #torch.dot(self.LinOut.weight.squeeze(), extended_state_spec.squeeze()) + self.LinOut.bias#torch.dot(self.LinOut.weight, 
@@ -867,14 +858,14 @@ class EchoStateNetwork(nn.Module):
         # Choose correct input
         if x is None and not self.feedback:
             #pass #raise ValueError("Error: cannot run without feedback and without x. Enable feedback or supply x")
-            inputs = ones((t_steps + steps_ahead, 2), dtype=torch.float32, device = self.device) 
+            inputs = ones((t_steps + steps_ahead, 2), **dev) 
         elif not x is None:
             # Initialize input
-            inputs = ones((t_steps, 1), dtype=torch.float32)  # Add bias term
+            inputs = ones((t_steps, 1), **dev)  # Add bias term
             inputs = hstack((inputs, x))  # Add x inputs
         else:
             # x is None
-            inputs = ones((t_steps + steps_ahead, 1), dtype=torch.float32, device = self.device)  # Add bias term
+            inputs = ones((t_steps + steps_ahead, 1), **dev)  # Add bias term
         
         # Run until we have no further inputs
         time_length = t_steps if x is None else t_steps - steps_ahead + 1

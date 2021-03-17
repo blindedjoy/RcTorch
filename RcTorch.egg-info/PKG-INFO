@@ -1,6 +1,6 @@
 Metadata-Version: 1.1
 Name: RcTorch
-Version: 0.52
+Version: 0.62
 Summary: A toolset for creating and optimizing Echo State Networks.
 Home-page: https://github.com/blindedjoy/RcTorch
 Author: Hayden Joy
