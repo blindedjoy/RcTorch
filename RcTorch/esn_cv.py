@@ -1000,7 +1000,7 @@ class EchoStateNetworkCV:
     
 
     
-    def HRC(self, parameters, backprop = False, plot_type = "error", *args): #Hayden's RC or Hillary lol
+    def HRC(self, parameters, backprop = False, plot_type = "error", *args):
         """
         This version of the RC helper function
 
