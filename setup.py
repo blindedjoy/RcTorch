@@ -4,13 +4,12 @@ setup(
   packages = ['RcTorch'],   # Chose the same as "name"
   version = '0.62',      # Start with a small number and increase it with every change you make
   license='Harvard',        # Chose a license from here: https://help.github.com/articles/licensing-a-repository
-  description = '',   # Give a short description about your library
+  description='A Python 3 toolset for creating and optimizing Echo State Networks. This library is an extension and expansion of the previous library written by Reinier Maat: https://github.com/1Reinier/Reservoir',# Give a short description about your library
   author = 'Hayden Joy',                   # Type in your name
   author_email = 'hnjoy@mac.com',      # Type in your E-Mail
   url = 'https://github.com/blindedjoy/RcTorch',   # Provide either the link to your github or to your website
   download_url = 'https://github.com/blindedjoy/RcTorch/archive/v_01.tar.gz',    # I explain this later on
   keywords = ['Echo State Network', 'ESN', 'Reservoir Computing', 'Echo State Networks', 'Optimization', 'BoTorch', 'PyTorch', 'Bayesian'],   # Keywords that define your package best
-  description='A Python 3 toolset for creating and optimizing Echo State Networks. This library is an extension and expansion of the previous library written by Reinier Maat: https://github.com/1Reinier/Reservoir',
   install_requires=[            # I get to this in a second
           'numpy',
           'scipy',
