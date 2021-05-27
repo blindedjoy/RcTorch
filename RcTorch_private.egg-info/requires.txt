@@ -1,0 +1,13 @@
+numpy
+scipy
+paramz
+datetime
+pandas
+seaborn
+pathlib
+matplotlib
+torch
+torchvision
+torchaudio
+gpytorch
+botorch
