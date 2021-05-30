@@ -49,6 +49,7 @@ import time
 from sklearn.linear_model import ElasticNet
 
 from .custom_loss import *
+import re
 
 
 
@@ -672,9 +673,19 @@ class EchoStateNetwork(nn.Module):
 
                 #     else:
                 #         init_conds = self.init_conditions
-
-                if self.ode_coefs[0] == "t**2" or self.ode_coefs[0] == "t^2":
-                    ode_coefs[0]  = X ** 2
+                if type(self.ode_coefs) == list:
+                    for i, coef in enumerate(self.ode_coefs):
+                        if type(coef) == str:
+                            if coef[0] == "t" and (coef[1] == "*" or (coef[1] == "*" and coef[2] == "*")):
+                                pow_ = float(re.sub("[^0-9.-]+", "", coef))
+                                ode_coefs[i]  = X ** pow_
+                        elif type(coef) in [float, int, type(X)]:
+                            pass
+                        else:
+                            assert False, "ode_coefs must be a list of floats or strings of the form 't^pow', where pow is a real number."
+                else:
+                    assert False, "ode_coefs must be a list of floats or strings of the form 't^pow', where pow is a real number."
+                
             else:
                 #ensure that X is a two dimensional tensor, or if X is None declare a tensor.
                 X = check_x(X, y, self.dev).to(self.device)
