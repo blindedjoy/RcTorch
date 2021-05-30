@@ -814,6 +814,8 @@ class EchoStateNetwork(nn.Module):
 
                 self.laststate = self.states[-1, :]
 
+                self.force_t = force(self.X)
+
                 
                 with no_grad():
                     if SOLVE and not out_weights:
@@ -943,24 +945,22 @@ class EchoStateNetwork(nn.Module):
                                     #########################################################
                                     if multiple_ICs:
                                         if nl:
-                                            force_t = force(t)
                                             self.y0s = y0s  = init_conds[0]
                                             p = self.ode_coefs[0];
-                                            self.D_As = D_As = [y0*(p+y0*self.q) - force_t for y0 in y0s]
+                                            self.D_As = D_As = [y0*(p+y0*self.q) - self.force_t for y0 in y0s]
                                         else:
-                                            force_t = force(t)
-                                            D_As = [A*ode_coefs[0]- force_t for A in As]
+                                            D_As = [A*ode_coefs[0]- self.force_t for A in As]
                                     else:
 
                                         if nl:
                                             y0  = init_conds[0]
                                             p = self.ode_coefs[0];
                                             #q=0.5
-                                            self.D_A = D_A =  y0*(p+y0*self.q) - force(t) 
+                                            self.D_A = D_A =  y0*(p+y0*self.q) - self.force_t
                                         else:
                                             #########################################################
                                             #population:
-                                            self.D_A = D_A = A[0] * ode_coefs[0] - force(t)    
+                                            self.D_A = D_A = A[0] * ode_coefs[0] - self.force_t   
                                     
                                         
                                     # D_A = A[0] * ode_coefs[0] - force(t)                                  
@@ -1117,7 +1117,7 @@ class EchoStateNetwork(nn.Module):
                             score = ODE_criterion(X, yfit.data, ydot.data, self.LinOut.weight.data, 
                                                     ode_coefs = ode_coefs, init_conds = init_cond_list, 
                                                     enet_strength = self.enet_strength, enet_alpha = self.enet_alpha,
-                                                    force = force)
+                                                    force_t = self.force_t)
                             scores.append(score)
 
                     self.init_conds = init_conditions
@@ -1214,7 +1214,7 @@ class EchoStateNetwork(nn.Module):
                         return ODE_criterion(X, self.yfit.data, self.ydot.data, self.LinOut.weight.data, 
                                                 ode_coefs = ode_coefs, init_conds = self.init_conds, 
                                                 enet_strength = self.enet_strength, enet_alpha = self.enet_alpha,
-                                                force = force)
+                                                force_t = self.force_t)
                     else:
                         return self.yfit, self.ydot
 
@@ -1575,7 +1575,7 @@ class EchoStateNetwork(nn.Module):
                                                 self.LinOut.weight.data, 
                                                 ode_coefs = ode_coefs, 
                                                 init_conds = self.init_conds,
-                                                force = force,
+                                                force_t = force(X),
                                                 enet_alpha = self.enet_alpha, 
                                                 enet_strength = self.enet_strength) 
                     # elif self.ODE_order == 2:
