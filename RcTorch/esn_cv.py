@@ -571,28 +571,6 @@ def execute_objective(arguments):
 
                 train_score = process_score(train_score, device = device)# / divis
 
-                if backprop_args["backprop_f"]:
-                    states_dict = {"s"  : RC.states,
-                                   "s1" : RC.states_dot, 
-                                   "G"  : RC.G,
-                                   "ex" : RC.extended_states,
-                                   "sb1": RC.sb1,
-                                   "sb" : RC.sb
-                                   }
-                    
-                    weight_dict = backprop_f(RC, 
-                                             custom_loss = train_args["ODE_criterion"], 
-                                             epochs = backprop_args["epochs"]
-                                             )
-
-                    train_score = weight_dict["best_score"]
-                    RC = weight_dict["RC"]
-                    RC.LinOut.weight = Parameter(weight_dict["weights"])
-                    RC.LinOut.bias = Parameter(weight_dict["bias"])
-                    assert train_score > 0
-                    train_score = process_score(train_score, device = device)
-                    #train_score = RC.fit(X = train_x, y = train_y, train_score = True, **train_args, out_weights = weight_dict, preloaded_states_dict = states_dict)
-
                 val_scores, pred_, id_ = RC.test(X=validate_x, y= validate_y, **test_args)
                 val_score = process_score(val_scores[0], device = device)# / divis
 

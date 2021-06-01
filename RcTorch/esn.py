@@ -1604,13 +1604,23 @@ class EchoStateNetwork(nn.Module):
                     scores = []
                     for i, pred in enumerate(y_preds):
                         ydot = ydots[i]
-                        score = ODE_criterion(X, pred.data, ydot.data, 
-                                              self.LinOut.weight.data, 
-                                              ode_coefs = ode_coefs, 
-                                              init_conds = self.init_conds,
-                                              enet_alpha = self.enet_alpha, 
-                                              enet_strength = self.enet_strength,
-                                              force_t = val_force_t)
+                        if not eq_system:
+                            score = ODE_criterion(X, pred.data, ydot.data, 
+                                                  self.LinOut.weight.data, 
+                                                  ode_coefs = ode_coefs, 
+                                                  init_conds = self.init_conds,
+                                                  enet_alpha = self.enet_alpha, 
+                                                  enet_strength = self.enet_strength,
+                                                  force_t = val_force_t)
+                        else:
+                            init_conds_system = [self.init_conds[0][i], self.init_conds[1]]
+                            score = ODE_criterion(X, pred.data, ydot.data, 
+                                                  self.LinOut.weight.data, 
+                                                  ode_coefs = ode_coefs, 
+                                                  init_conds = init_conds_system,
+                                                  enet_alpha = self.enet_alpha, 
+                                                  enet_strength = self.enet_strength,
+                                                  force_t = val_force_t)
                         scores.append(score)
                     
                     return scores, pred.detach(), self.id_
