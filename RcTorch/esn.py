@@ -1604,7 +1604,7 @@ class EchoStateNetwork(nn.Module):
                     scores = []
                     for i, pred in enumerate(y_preds):
                         ydot = ydots[i]
-                        if not eq_system:
+                        if not self.eq_system:
                             score = ODE_criterion(X, pred.data, ydot.data, 
                                                   self.LinOut.weight.data, 
                                                   ode_coefs = ode_coefs, 
