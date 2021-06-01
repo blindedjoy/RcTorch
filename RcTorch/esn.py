@@ -623,16 +623,6 @@ class EchoStateNetwork(nn.Module):
             learning_rate: 
             verbose:
         """
-        #self.alpha = None
-        if init_conditions:
-            if type(init_conditions[0]) == list or type(init_conditions[0]) == np.ndarray:
-                multiple_ICs = self.multiple_ICs = True
-            elif type(init_conditions[0]) in [float,  int, np.float64, np.float32, np.int32, np.float64]:
-                multiple_ICs = self.multiple_ICs = False
-            else:
-                assert False, f'malformed ICs, either use a list, a float or an integer'
-        init_conds = init_conditions
-        self.eq_system = eq_system
 
         with no_grad():
             self.reparam = reparam_f
@@ -651,6 +641,8 @@ class EchoStateNetwork(nn.Module):
             else:
                 SCALE = False
 
+
+
             #if save_after_n_epochs  == None and self.epochs:
             #    save_after_n_epochs = int(self.epochs * 0.7)
             
@@ -660,6 +652,17 @@ class EchoStateNetwork(nn.Module):
             
             #ensure that y is a 2-dimensional tensor with pre-specified arguments.
             if self.ODE_order: 
+                assert init_conditions
+                if type(init_conditions[0]) == list or type(init_conditions[0]) == np.ndarray:
+                    multiple_ICs = self.multiple_ICs = True
+                elif type(init_conditions[0]) in [float,  int, np.float64, np.float32, np.int32, np.float64]:
+                    multiple_ICs = self.multiple_ICs = False
+                else:
+                    assert False, f'malformed ICs, either use a list, a float or an integer'
+                init_conds = init_conditions
+                
+                self.eq_system = eq_system
+
                 if self.dt != None:
                     self.alpha = self.leaking_rate[0] / self.dt
 
@@ -703,10 +706,7 @@ class EchoStateNetwork(nn.Module):
                 if SCALE:
                     y = self.scale(outputs=y, keep=True)    
                 y.requires_grad_(False)
-                
-
-
-            self.lastoutput = y[-1, :]
+                self.lastoutput = y[-1, :]
 
             self.unscaled_X = Parameter(X, requires_grad = self.track_in_grad)
 
@@ -1126,7 +1126,7 @@ class EchoStateNetwork(nn.Module):
                             scores.append(score)
 
                     self.init_conds = init_conditions
-                    self.y_last = y[-1, :]
+                    self.lastoutput = y[-1, :]
                     if train_score:
                         return {"scores" : scores, 
                                 "weights": weights, 
@@ -1171,7 +1171,7 @@ class EchoStateNetwork(nn.Module):
                         gd_biases.append(gd_bias)
                         Ls.append(loss)
                     self.init_conds = init_conditions
-                    self.y_last = y[-1, :]
+                    self.lastoutput = y[-1, :]
                     if train_score:
                         return {"scores" : scores, 
                                 "weights": gd_weights, 
@@ -1189,7 +1189,7 @@ class EchoStateNetwork(nn.Module):
                 self.N = self.LinOut(self.extended_states)
                 
                 # Store last y value as starting value for predictions
-                self.y_last = y[-1, :]
+                self.lastoutput = y[-1, :]
 
                 if self.ODE_order >= 1:
                     #calc Ndot just uses the weights
@@ -1247,6 +1247,7 @@ class EchoStateNetwork(nn.Module):
             #                              enet_strength = self.enet_strength, 
             #                              enet_alpha = self.enet_alpha)
             #     return self.yfit, self.ydot, self.ydot2
+            
 
             if not ODE_order and burn_in:
                 self.N = self.N[self.burn_in:,:]
@@ -1553,8 +1554,6 @@ class EchoStateNetwork(nn.Module):
 
             ode_coefs = convert_ode_coefs(self.ode_coefs, X)
 
-        #if self.ODE_order:
-        #self.track_in_grad = False
         X.requires_grad_(False)
 
         assert X.requires_grad == False#self.track_in_grad
@@ -1645,7 +1644,7 @@ class EchoStateNetwork(nn.Module):
 
         """
         # Check if ESN has been trained
-        assert self.y_last is not None, 'Error: ESN not trained yet'
+        assert self.lastoutput is not None, 'Error: ESN not trained yet'
 
         
 
@@ -1793,33 +1792,32 @@ class EchoStateNetwork(nn.Module):
                     return y, ydot
                 else:
                     if not self.eq_system:
-                        if self.multiple_ICs:
-                            ys = []
-                            ydots = []
-                            for i, weight in enumerate(self.weights_list):
-                                #print("w", i)
-                                self.LinOut.weight = Parameter(weight.view(self.n_outputs, -1))
-                                self.LinOut.bias = Parameter(self.biases_list[i].view(1, self.n_outputs))
+                        ys = []
+                        ydots = []
+                        for i, weight in enumerate(self.weights_list):
+                            #print("w", i)
+                            self.LinOut.weight = Parameter(weight.view(self.n_outputs, -1))
+                            self.LinOut.bias = Parameter(self.biases_list[i].view(1, self.n_outputs))
 
-                                N = self.LinOut(states)
-                                N_dot = self.calc_Ndot(states_dot, cutoff = False)
-                                yfit = g*N
-                                #for i, cond in enumerate(self.init_conds):
-                                yfit[:, 0] = yfit[:,0] + self.init_conds[0][i]
-                                #yfit[:, 1] = yfit[:,1] + init_conds[1]#[i]
-                                
-                                ydot = g_dot * N +  g * N_dot
+                            N = self.LinOut(states)
+                            N_dot = self.calc_Ndot(states_dot, cutoff = False)
+                            yfit = g*N
+                            #for i, cond in enumerate(self.init_conds):
+                            yfit[:, 0] = yfit[:,0] + self.init_conds[0][i]
+                            #yfit[:, 1] = yfit[:,1] + init_conds[1]#[i]
+                            
+                            ydot = g_dot * N +  g * N_dot
 
-                                ys.append(yfit)
-                                ydots.append(ydot)
+                            ys.append(yfit)
+                            ydots.append(ydot)
 
-                            return ys, ydots
+                        return ys, ydots
                         #y = A + g * N
                         
                         #elf.yfit = init_conds[0] + g.pow(1) * self.N
                         #self.ydot = g_dot * self.N +  g * N_dot
                     else:
-                        assert False, f'multiple_ICs not yet established for systems'
+                        assert False, f'multiple_ICs not yet implimented for systems'
                     #y[:, 1] = y[:,1] + self.init_conds[1]
                     #yy_dot, p_dot = y[:,1].view(-1,1), -y[:,0].view(-1,1)
                     #ydot = torch.cat((yy_dot, p_dot), axis = 1)
@@ -1850,111 +1848,111 @@ class EchoStateNetwork(nn.Module):
 
 
 
-    def predict_stepwise(self, y, x=None, steps_ahead=1, y_start=None):
-        """Predicts a specified number of steps into the future for every time point in y-values array.
-        E.g. if `steps_ahead` is 1 this produces a 1-step ahead prediction at every point in time.
-        Parameters
-        ----------
-        y : numpy array
-            Array with y-values. At every time point a prediction is made (excluding the current y)
-        x : numpy array or None
-            If prediciton requires inputs, provide them here
-        steps_ahead : int (default 1)
-            The number of steps to predict into the future at every time point
-        y_start : float or None
-            Starting value from which to start prediction. If None, last stored value from training will be used
-        Returns
-        -------
-        y_predicted : numpy array
-            Array of predictions at every time step of shape (times, steps_ahead)
-        """
+    # def predict_stepwise(self, y, x=None, steps_ahead=1, y_start=None):
+    #     """Predicts a specified number of steps into the future for every time point in y-values array.
+    #     E.g. if `steps_ahead` is 1 this produces a 1-step ahead prediction at every point in time.
+    #     Parameters
+    #     ----------
+    #     y : numpy array
+    #         Array with y-values. At every time point a prediction is made (excluding the current y)
+    #     x : numpy array or None
+    #         If prediciton requires inputs, provide them here
+    #     steps_ahead : int (default 1)
+    #         The number of steps to predict into the future at every time point
+    #     y_start : float or None
+    #         Starting value from which to start prediction. If None, last stored value from training will be used
+    #     Returns
+    #     -------
+    #     y_predicted : numpy array
+    #         Array of predictions at every time step of shape (times, steps_ahead)
+    #     """
 
-        # Check if ESN has been trained
-        if self.out_weights is None or self.y_last is None:
-            raise ValueError('Error: ESN not trained yet')
+    #     # Check if ESN has been trained
+    #     if self.out_weights is None or self.y_last is None:
+    #         raise ValueError('Error: ESN not trained yet')
 
-        # Normalize the arguments (like was done in train)
-        y = self.scale(outputs=y)
-        if not x is None:
-            x = self.scale(inputs=x)
+    #     # Normalize the arguments (like was done in train)
+    #     y = self.scale(outputs=y)
+    #     if not x is None:
+    #         x = self.scale(inputs=x)
 
-        # Timesteps in y
-        t_steps = y.shape[0]
+    #     # Timesteps in y
+    #     t_steps = y.shape[0]
 
-        # Check input
-        if not x is None and not x.shape[0] == t_steps:
-            raise ValueError('x has the wrong size for prediction: x.shape[0] = {}, while y.shape[0] = {}'.format(
-                x.shape[0], t_steps))
+    #     # Check input
+    #     if not x is None and not x.shape[0] == t_steps:
+    #         raise ValueError('x has the wrong size for prediction: x.shape[0] = {}, while y.shape[0] = {}'.format(
+    #             x.shape[0], t_steps))
 
-        # Choose correct input
-        if x is None and not self.feedback:
-            #pass #raise ValueError("Error: cannot run without feedback and without x. Enable feedback or supply x")
-            inputs = ones((t_steps + steps_ahead, 2), **dev) 
-        elif not x is None:
-            # Initialize input
-            inputs = ones((t_steps, 1), **dev)  # Add bias term
-            inputs = hstack((inputs, x))  # Add x inputs
-        else:
-            # x is None
-            inputs = ones((t_steps + steps_ahead, 1), **dev)  # Add bias term
+    #     # Choose correct input
+    #     if x is None and not self.feedback:
+    #         #pass #raise ValueError("Error: cannot run without feedback and without x. Enable feedback or supply x")
+    #         inputs = ones((t_steps + steps_ahead, 2), **dev) 
+    #     elif not x is None:
+    #         # Initialize input
+    #         inputs = ones((t_steps, 1), **dev)  # Add bias term
+    #         inputs = hstack((inputs, x))  # Add x inputs
+    #     else:
+    #         # x is None
+    #         inputs = ones((t_steps + steps_ahead, 1), **dev)  # Add bias term
         
-        # Run until we have no further inputs
-        time_length = t_steps if x is None else t_steps - steps_ahead + 1
+    #     # Run until we have no further inputs
+    #     time_length = t_steps if x is None else t_steps - steps_ahead + 1
 
-        # Set parameters
-        y_predicted = zeros((time_length, steps_ahead), dtype=self.dtype, device=self.device)
+    #     # Set parameters
+    #     y_predicted = zeros((time_length, steps_ahead), dtype=self.dtype, device=self.device)
 
-        # Get last states
-        previous_y = self.y_last
-        if not y_start is None:
-            previous_y = self.scale(outputs=y_start)[0]
+    #     # Get last states
+    #     previous_y = self.y_last
+    #     if not y_start is None:
+    #         previous_y = self.scale(outputs=y_start)[0]
 
-        # Initialize state from last availble in train
-        current_state = self.state[-1]
+    #     # Initialize state from last availble in train
+    #     current_state = self.state[-1]
 
-        # Predict iteratively
-        with no_grad():
+    #     # Predict iteratively
+    #     with no_grad():
             
-            for t in range(time_length):
+    #         for t in range(time_length):
 
-                # State_buffer for steps ahead prediction
-                prediction_state = current_state.clone().detach()
+    #             # State_buffer for steps ahead prediction
+    #             prediction_state = current_state.clone().detach()
                 
-                # Y buffer for step ahead prediction
-                prediction_y = previous_y.clone().detach()
+    #             # Y buffer for step ahead prediction
+    #             prediction_y = previous_y.clone().detach()
             
-                # Predict stepwise at from current time step
-                for n in range(steps_ahead):
+    #             # Predict stepwise at from current time step
+    #             for n in range(steps_ahead):
                     
-                    # Get correct input based on feedback setting
-                    prediction_input = inputs[t + n] if not self.feedback else hstack((inputs[t + n], prediction_y))
+    #                 # Get correct input based on feedback setting
+    #                 prediction_input = inputs[t + n] if not self.feedback else hstack((inputs[t + n], prediction_y))
                     
-                    # Update
-                    prediction_update = self.activation_function(matmul(self.in_weights, prediction_input.T) + 
-                                                   matmul(self.weights, prediction_state))
+    #                 # Update
+    #                 prediction_update = self.activation_function(matmul(self.in_weights, prediction_input.T) + 
+    #                                                matmul(self.weights, prediction_state))
                     
-                    prediction_state = self.leaking_rate * prediction_update + (1 - self.leaking_rate) * prediction_state
+    #                 prediction_state = self.leaking_rate * prediction_update + (1 - self.leaking_rate) * prediction_state
                     
-                    # Store for next iteration of t (evolves true state)
-                    if n == 0:
-                        current_state = prediction_state.clone().detach()
+    #                 # Store for next iteration of t (evolves true state)
+    #                 if n == 0:
+    #                     current_state = prediction_state.clone().detach()
                     
-                    # Prediction. Order of concatenation is [1, inputs, y(n-1), state]
-                    prediction_row = hstack((prediction_input, prediction_state))
-                    if not self.backprop:
-                        y_predicted[t, n] = matmul(prediction_row, self.out_weights)
-                    else:
-                        y_predicted[t, n] = self.LinOut.weight.T @ prediction_row[1:]
-                    prediction_y = y_predicted[t, n]
+    #                 # Prediction. Order of concatenation is [1, inputs, y(n-1), state]
+    #                 prediction_row = hstack((prediction_input, prediction_state))
+    #                 if not self.backprop:
+    #                     y_predicted[t, n] = matmul(prediction_row, self.out_weights)
+    #                 else:
+    #                     y_predicted[t, n] = self.LinOut.weight.T @ prediction_row[1:]
+    #                 prediction_y = y_predicted[t, n]
 
-                # Evolve true state
-                previous_y = y[t]
+    #             # Evolve true state
+    #             previous_y = y[t]
 
-        # Denormalize predictions
-        y_predicted = self.descale(outputs=y_predicted)
+    #     # Denormalize predictions
+    #     y_predicted = self.descale(outputs=y_predicted)
         
-        # Return predictions
-        return y_predicted
+    #     # Return predictions
+    #     return y_predicted
     
     
 

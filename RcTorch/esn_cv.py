@@ -1566,15 +1566,15 @@ class EchoStateNetworkCV:
 
 
         declaration_args = {'activation_f' : self.activation_function,
-                                 'act_f_prime' : self.act_f_prime,
+                            'act_f_prime' : self.act_f_prime,
                                  #'backprop' : self.backprop,
-                                 'n_outputs' : self.n_outputs,
+                            'n_outputs' : self.n_outputs,
                                  #'model_type' : self.model_type,
                                  #'input_weight_type' : self.input_weight_type, 
-                                 'approximate_reservoir' : self.approximate_reservoir,
-                                 "device" : self.device,
-                                 "reservoir" : self.reservoir_matrices
-                                 }
+                            'approximate_reservoir' : self.approximate_reservoir,
+                            "device" : self.device,
+                            "reservoir" : self.reservoir_matrices
+                            }
         train_args = {"burn_in" : self.esn_burn_in, 
                        "ODE_order" : self.ODE_order,
                        #"track_in_grad" : self.track_in_grad,
@@ -1587,35 +1587,31 @@ class EchoStateNetworkCV:
                        "nl" : self.nl,
                        "backprop_f" : self.backprop_f,
                        "epochs" : self.epochs
+                       "SOLVE" : self.solve, 
+                      #"track_in_grad" : False,
+                      "init_conditions" : self.init_conditions,
+                      #"SCALE" : self.scale,
+                      "reparam_f" : self.reparam_f,
+                      "ODE_criterion" : self.ODE_criterion
                        #"multiple_ICs" : self.multiple_ICs
                        }
 
         backprop_args = {"backprop_f" : self.backprop_f,
                          "epochs" : self.epochs}
 
-        test_args = {"scoring_method" : self.scoring_method}
-
-        if self.ODE_order:
-            train_args = {**train_args, 
-                          "SOLVE" : self.solve, 
-                          #"track_in_grad" : False,
-                          "init_conditions" : self.init_conditions,
-                          #"SCALE" : self.scale,
-                          "reparam_f" : self.reparam_f,
-                          "ODE_criterion" : self.ODE_criterion}
-            cv_args = {"rounds" : self.rounds,
-                       "tr_score_prop" : self.tr_score_prop,
-                       "log_score": self.log_score}
-            test_args = { **test_args,
-                          "reparam": self.reparam_f,
-                          "ODE_criterion" : self.ODE_criterion}
+        test_args = {"scoring_method" : self.scoring_method,
+                     "reparam": self.reparam_f,
+                     "ODE_criterion" : self.ODE_criterion}
+        cv_args = {"rounds" : self.rounds,
+                   "tr_score_prop" : self.tr_score_prop,
+                   "log_score": self.log_score}
 
         self.parallel_arguments = {"declaration_args": declaration_args, #"RC" : RC,
-                              "train_args": train_args,
-                              "test_args" : test_args,
-                              "backprop_args" : backprop_args,
-                              "device" : self.device,
-                              "cv_args" : cv_args
+                                   "train_args": train_args,
+                                   "test_args" : test_args,
+                                   "backprop_args" : backprop_args,
+                                   "device" : self.device,
+                                   "cv_args" : cv_args
                               }
 
         X_init = get_initial_points(self.scaled_bounds.shape[1], self.initial_samples, device = self.device, dtype = self.dtype)
