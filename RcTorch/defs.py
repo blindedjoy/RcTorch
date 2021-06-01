@@ -14,14 +14,17 @@ def hamiltonian(x, p, lam = lam):
 def fforce(t, A = 1):
     return A * torch.sin(t)
 
-def no_reg_loss(X , y, ydot, out_weights, force = fforce, 
+def no_fforce(t):
+    return 0
+
+def no_reg_loss(X , y, ydot, out_weights, force_t = None, 
                 reg = True, ode_coefs = None, mean = True,
                enet_strength = None, enet_alpha = None, init_conds = None, lam = 1):
     y, p = y[:,0].view(-1,1), y[:,1].view(-1,1)
     ydot, pdot = ydot[:,0].view(-1,1), ydot[:,1].view(-1,1)
     
     #with paramization
-    L =  (ydot - p)**2 + (pdot + y + lam * y**3   - force(X))**2
+    L =  (ydot - p)**2 + (pdot + y + lam * y**3   - force_t)**2
     
     #if mean:
     L = torch.mean(L)
@@ -53,7 +56,7 @@ def H(x, y, px, py):
     LH = LHt1 + LHt2 + LHt3
     return(LH)
 
-def hennon_hailes_loss(X , y, ydot, out_weights, force = fforce, 
+def hennon_hailes_loss(X , y, ydot, out_weights, force_t = fforce, 
                 reg = True, ode_coefs = None, mean = True,
                enet_strength = None, enet_alpha = None, init_conds = None, lam = 1):
     
@@ -90,14 +93,14 @@ def hennon_hailes_loss(X , y, ydot, out_weights, force = fforce,
     
     return L
 
-def elastic_loss(X , y, ydot, out_weights, force = fforce, 
+def elastic_loss(X , y, ydot, out_weights, force_t = fforce, 
                 reg = True, ode_coefs = None, mean = True,
                enet_strength = None, enet_alpha = None, init_conds = None, lam = 1):
     y, p = y[:,0].view(-1,1), y[:,1].view(-1,1)
     ydot, pdot = ydot[:,0].view(-1,1), ydot[:,1].view(-1,1)
     
     #with paramization
-    L =  (ydot - p)**2 + (pdot + y + lam * y**3   - force(X))**2
+    L =  (ydot - p)**2 + (pdot + y + lam * y**3   - force_t)**2
     
     #if mean:
     L = torch.mean(L)
@@ -134,33 +137,33 @@ def freparam(t, order = 1):
     g_dot = 1 - g
     return g, g_dot
 
-def driven_pop_loss(X , y, ydot, out_weights, lam = 1, force = fforce, reg = False, 
+def driven_pop_loss(X , y, ydot, out_weights, lam = 1, force_t = None, reg = False, 
                ode_coefs = None, init_conds = None, 
                 enet_alpha = None, enet_strength =None, mean = True):
     
     #with paramization
-    L =  ydot  + lam * y - force(X)
+    L =  ydot  + lam * y - force_t
     
-    if reg:
-        #assert False
-        weight_size_sq = torch.mean(torch.square(out_weights))
-        weight_size_L1 = torch.mean(torch.abs(out_weights))
-        L_reg = enet_strength*(enet_alpha * weight_size_sq + (1- enet_alpha) * weight_size_L1)
-        L = L + 0.1 * L_reg 
+    # if reg:
+    #     #assert False
+    #     weight_size_sq = torch.mean(torch.square(out_weights))
+    #     weight_size_L1 = torch.mean(torch.abs(out_weights))
+    #     L_reg = enet_strength*(enet_alpha * weight_size_sq + (1- enet_alpha) * weight_size_L1)
+    #     L = L + 0.1 * L_reg 
     
     L = torch.square(L)
     if mean:
         L = torch.mean(L)
     return L
 
-def ham_loss(X , y, ydot, out_weights, force = fforce, 
+def ham_loss(X , y, ydot, out_weights, force_t = None, 
                 reg = True, ode_coefs = None, mean = True,
                enet_strength = None, enet_alpha = None, init_conds = None, lam = 1):
     y, p = y[:,0].view(-1,1), y[:,1].view(-1,1)
     ydot, pdot = ydot[:,0].view(-1,1), ydot[:,1].view(-1,1)
     
     #with paramization
-    L =  (ydot - p)**2 + (pdot + y + lam * y**3   - force(X))**2
+    L =  (ydot - p)**2 + (pdot + y + lam * y**3   - force_t)**2
     
     #if mean:
     L = torch.mean(L)
@@ -192,7 +195,7 @@ lr_100_epoch, lr_1000_epoch, lr_5000_epoch = [], [], []
 
 def optimize_last_layer(esn, 
                         SAVE_AFTER_EPOCHS = 1000,
-                        epochs = 45000,
+                        epochs = 1000,#45000,
                         custom_loss = None,
                         loss_threshold = 10**-10,#10 ** -8,
                         EPOCHS_TO_TERMINATION = None,

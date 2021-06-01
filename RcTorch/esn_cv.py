@@ -25,6 +25,8 @@ import logging
 #logger = multiprocessing.log_to_stderr()
 #logger.setLevel(multiprocessing.SUBDEBUG)
 
+
+
 #https://stackoverflow.com/questions/9336646/python-decorator-with-multiprocessing-fails
 class my_decorator(object):
     def __init__(self, target):
@@ -456,7 +458,7 @@ def combine_score(tr_score, val_score, tr_score_prop, log_score):
         else:
             return torch.log(tr_score * tr_score_prop + val_score * (1- tr_score_prop))
 
-def execute_HRC(arguments):
+def execute_objective(arguments):
     """ Function at the heart of RCTorch, train a network on multiple rounds of cross-validated train/test info, then return the average error.
     This method also deals with dispatching mutliple series to the objective function if there are multiple, and aggregates the returned scores
         by averaging.
@@ -519,6 +521,7 @@ def execute_HRC(arguments):
     ODE_order = parallel_arguments["train_args"]["ODE_order"]
 
     train_args = parallel_arguments["train_args"]
+    test_args = parallel_arguments["test_args"]
 
     total_score = 0
 
@@ -538,14 +541,22 @@ def execute_HRC(arguments):
         #divis = rounds *2
         if ODE_order:
             if multiple_ICs:
+                # if train_score:
+                #         return {"scores" : scores, 
+                #                 "weights": gd_weights, 
+                #                 "biases" : gd_biases,
+                #                 "ys"     : ys,
+                #                 "ydots"  : ydots,
+                #                 "losses" : Ls}
                 dictt = RC.fit(X = train_x, y = train_y, train_score = True, **train_args)
                 train_scores = dictt["scores"]
-                val_scores, pred_, id_ = RC.test(X=validate_x, y= validate_y, **parallel_arguments["test_args"])
+                val_scores, pred_, id_ = RC.test(X=validate_x, y= validate_y, **test_args)
 
-                nn = len(cv_samples_) * len(train_scores)
+                
                 for i, train_score in enumerate(train_scores):
                     
                     train_scores[i] = process_score(train_score, device = device)
+
                     val_score = process_score(val_scores[i], device = device)# / divis
 
                     round_score = combine_score(train_score, val_score, tr_score_prop, log_score)  
@@ -554,76 +565,40 @@ def execute_HRC(arguments):
 
             else:
                 #train_score = RC.fit(X = train_x, y = train_y, train_score = True, **parallel_arguments["train_args"])
-                if not rounds:
-                    train_score = RC.fit(X = train_x, y = train_y, train_score = True, **train_args)
-                    train_score = process_score(train_score, device = device)# / divis
+                results = RC.fit(X = train_x, y = train_y, train_score = True, **train_args)
+                train_scores = results["scores"]
+                train_score = train_scores[0]
 
-                    if backprop_args["backprop_f"]:
-                        states_dict = {"s"  : RC.states,
-                                       "s1" : RC.states_dot, 
-                                       "G"  : RC.G,
-                                       "ex" : RC.extended_states,
-                                       "sb1": RC.sb1,
-                                       "sb" : RC.sb
-                                       }
-                        
-                        weight_dict = backprop_f(RC, 
-                                                 custom_loss = train_args["ODE_criterion"], 
-                                                 epochs = backprop_args["epochs"]
-                                                 )
+                train_score = process_score(train_score, device = device)# / divis
 
-                        train_score = weight_dict["best_score"]
-                        RC = weight_dict["RC"]
-                        RC.LinOut.weight = Parameter(weight_dict["weights"])
-                        RC.LinOut.bias = Parameter(weight_dict["bias"])
-                        assert train_score > 0
-                        train_score = process_score(train_score, device = device)
-                        #train_score = RC.fit(X = train_x, y = train_y, train_score = True, **train_args, out_weights = weight_dict, preloaded_states_dict = states_dict)
+                if backprop_args["backprop_f"]:
+                    states_dict = {"s"  : RC.states,
+                                   "s1" : RC.states_dot, 
+                                   "G"  : RC.G,
+                                   "ex" : RC.extended_states,
+                                   "sb1": RC.sb1,
+                                   "sb" : RC.sb
+                                   }
+                    
+                    weight_dict = backprop_f(RC, 
+                                             custom_loss = train_args["ODE_criterion"], 
+                                             epochs = backprop_args["epochs"]
+                                             )
 
-                    val_score, pred_, id_ = RC.test(X=validate_x, y= validate_y, **train_args)
-                    val_score = process_score(val_score, device = device)# / divis
+                    train_score = weight_dict["best_score"]
+                    RC = weight_dict["RC"]
+                    RC.LinOut.weight = Parameter(weight_dict["weights"])
+                    RC.LinOut.bias = Parameter(weight_dict["bias"])
+                    assert train_score > 0
+                    train_score = process_score(train_score, device = device)
+                    #train_score = RC.fit(X = train_x, y = train_y, train_score = True, **train_args, out_weights = weight_dict, preloaded_states_dict = states_dict)
 
-                    cv_sample_score = combine_score(train_score, val_score, tr_score_prop, log_score)  
+                val_scores, pred_, id_ = RC.test(X=validate_x, y= validate_y, **test_args)
+                val_score = process_score(val_scores[0], device = device)# / divis
 
-                elif rounds:
-                    for j in range(rounds):
-                        if not j:
-                            train_score = RC.fit(X = train_x, y = train_y, train_score = True, **train_args)
-                            round_score = 0
-                            states_dict = {"s"  : RC.states,
-                                           "s1" : RC.states_dot, 
-                                           "G"  : RC.G,
-                                           "ex" : RC.extended_states,
-                                           "sb1": RC.sb1,
-                                           "sb" : RC.sb
-                                           }
-                        else:
-                            train_score = RC.fit(preloaded_states_dict = states_dict, X = train_x, y = train_y, train_score = True, **train_args)
+                cv_sample_score = combine_score(train_score, val_score, tr_score_prop, log_score)  
 
-                        if backprop_args["backprop_f"]:
-                            backprop_f = backprop_args["backprop_f"]
-
-                            weight_dict = backprop_f(RC, 
-                                                     custom_loss = train_args["ODE_criterion"], 
-                                                     epochs = backprop_args["epochs"]
-                                                    )
-                            #get the train_score
-                            train_score = weight_dict["best_score"]; assert train_score > 0
-                            #update the weights and the RC
-                            RC = weight_dict["RC"]
-                            RC.LinOut.weight = Parameter(weight_dict["weights"])
-                            RC.LinOut.bias = Parameter(weight_dict["bias"])
-
-                        val_score, pred_, id_ = RC.test(X=validate_x, y= validate_y, **parallel_arguments["test_args"])
-
-                        train_score = process_score(train_score, device = device)#/ divis
-                        val_score = process_score(val_score, device = device) #/ divis
-
-                        print("train_score", train_score, "val score", val_score)
-
-                        round_score = combine_score(train_score, val_score, tr_score_prop, log_score)  
-                        
-                        cv_sample_score += round_score
+            
         else:
             _ = RC.fit(X = train_x, y = train_y,**parallel_arguments["train_args"])
             #train_score = process_score(train_score)
@@ -646,6 +621,7 @@ def execute_HRC(arguments):
     #del RC;
     #score_mu = total_score/len(cv_samples)
     #del cv_samples;
+    nn = len(cv_samples_) * len(train_scores)
 
     total_score = total_score / nn
     if id_ == 0:
@@ -1025,11 +1001,11 @@ class EchoStateNetworkCV:
             if x.shape[0] != y.shape[0]:
                 raise ValueError("y-array and x-array have different number of samples (rows)")
     
-    def eval_objective(self, x):
-        """This is a helper function we use to unnormalize and evaluate a point"""
-        return self.HRC(x) 
-        #original BoTorch code:
-        #unnormalize(x, self.scaled_bounds))
+    # def eval_objective(self, x):
+    #     """This is a helper function we use to unnormalize and evaluate a point"""
+    #     return self.HRC(x) 
+    #     #original BoTorch code:
+    #     #unnormalize(x, self.scaled_bounds))
 
     def objective_function(self, parameters, train_y, validate_y, train_x=None, validate_x=None, random_seed=None):
         """Returns selected error metric on validation set.
@@ -1245,7 +1221,7 @@ class EchoStateNetworkCV:
 
         plt.legend()
     
-    def train_plot_update(self, pred_, validate_y, steps_displayed, elastic_losses = None):
+    def train_plot_update(self, pred_, validate_y, steps_displayed, elastic_losses = None, restart_triggered = False):
         """If you are running rctorch in a jupyter notebook then this function displays live plots so that you can watch training if 
         self.interactive = True.
 
@@ -1263,36 +1239,48 @@ class EchoStateNetworkCV:
 
         """
         if self.interactive:
-            pred_2plot = pred_.clone().detach().to("cpu")
+            display.clear_output(wait=True) 
+            
+            pred_2plot = pred_.detach().to("cpu")
             if not self.ODE_order:
-                validate_y_2plot = validate_y.clone().detach().to("cpu")
+                validate_y_2plot = validate_y.detach().to("cpu")
             try:
                 self.ax[1].clear()
                 self.ax[0].clear()
             except:
                 pass
 
+            
+
             labels = "best value", "all samples"
-            log2 = np.log(2)
+            #log2 = np.log(2)
 
             # Plot 1: the training history of the bayesian optimization
             # if not self.log_score:
             #     self.ax[0].plot(np.log(self.errorz_step), alpha = 0.5, color = "blue", label = labels[0] )
             #     self.ax[0].plot(np.log(self.errorz), alpha = 0.2, color = "green", label = labels[1])
             # else:
-            self.ax[0].plot(self.errorz_step, alpha = 0.5, color = "blue", label = labels[0] )
-            self.ax[0].plot(self.errorz, alpha = 0.2, color = "green", label = labels[1])
-            self.ax[0].set_title("log(error) vs Thompson Sampling step")
+            font_dict = {"prop" : {"size":14}}
+            ticks_font_size = 14
+
+            self.ax[0].plot(10**np.array(self.errorz_step), alpha = 0.5, color = "blue", label = labels[0] )
+            self.ax[0].plot(10**np.array(self.errorz), alpha = 0.2, color = "green", label = labels[1])
+            #self.ax[0].set_title("log(error) vs Thompson Sampling step")
             self.ax[0].set_ylabel(f"log({self.scoring_method})")
-            self.ax[0].set_xlabel("Bayesian Optimization step")
-            self.ax[0].legend()
+            self.ax[0].set_xlabel("BO step")
+            self.ax[0].set_ylabel("Error")
+            self.ax[0].legend(**font_dict)
+            self.ax[0].set_yscale("log")
+            #self.ax[0].set_ylim(10**-8,1)
+            # self.ax[0].set_xtickslabels(fontsize= ticks_font_size )
+            # self.ax[0].set_ytickslabels(fontsize= ticks_font_size )
             
-            #plot 2: the turbo state
-            self.ax[1].axhline(np.log(self.state.length_max)/log2, color = 'green', label = 'max length')
+            #plot 2: the turbo state            #plot 2: the turbo state
+            self.ax[1].axhline(np.log(self.state.length_max)/self.log2, color = 'green', label = 'max length')
             self.ax[1].set_title("TURBO state")
-            self.ax[1].plot(np.log(self.length_progress)/log2, color = 'blue', label = 'current length')
-            self.ax[1].axhline(np.log(self.state.length_min)/log2, color = 'red', label = 'target length')
-            self.ax[1].legend()     
+            self.ax[1].plot(np.log(self.length_progress)/self.log2, color = 'blue', label = 'current length')
+            self.ax[1].axhline(np.log(self.state.length_min)/self.log2, color = 'red', label = 'target length')
+            self.ax[1].legend()  
 
             #plot 3 (most recent prediction)
             self.ax[2].clear()
@@ -1301,16 +1289,19 @@ class EchoStateNetworkCV:
                 self.ax[2].set_ylim(self.y.min().item() - 0.1, self.y.max().item() )
             self.ax[2].plot(pred_2plot[:steps_displayed], alpha = 0.3, color = "red", label = "latest pred")
                 
-            self.ax[2].set_title("Most recent validation prediction vs validation set")
+            self.ax[2].set_title("Val Set Prediction")
             self.ax[2].set_ylabel("y")
-            self.ax[2].set_xlabel("time step")
+            self.ax[2].set_xlabel(r'$t$')
+
             pl.legend()
+            pl.tight_layout()
+
+            display.display(pl.gcf())
 
             #clear the plot outputt and then re-plot
-            display.clear_output(wait=True) 
-            display.display(pl.gcf()) 
+             
 
-    def HRC(self, parameters, plot_type = "error", *args):
+    def eval_objective(self, parameters, plot_type = "error", *args):
         """
         This version of the RC helper function
 
@@ -1346,7 +1337,7 @@ class EchoStateNetworkCV:
             Pool = mp_Pool(num_processes)
 
             #get the asynch object:
-            results = Pool.map(execute_HRC, data_args)
+            results = Pool.map(execute_objective, data_args)
             
             Pool.close()
             Pool.join()
@@ -1355,7 +1346,7 @@ class EchoStateNetworkCV:
             Pool = mp_Pool(num_processes)
 
             #get the asynch object:
-            results = Pool.map(execute_HRC, data_args)
+            results = Pool.map(execute_objective, data_args)
             
             Pool.close()
             Pool.join()
@@ -1367,7 +1358,7 @@ class EchoStateNetworkCV:
             results = [(result[0], result[1]) for result in results]
             scores, preds = list(zip(*results)) 
         else:
-            results = execute_HRC(data_args[0])
+            results = execute_objective(data_args[0])
             scores, preds, id_ = results
             scores, preds = [scores], [preds]
 
@@ -1426,7 +1417,7 @@ class EchoStateNetworkCV:
     
     def optimize(self, y = None, x=None, store_path=None, epochs = 25, learning_rate = 0.005, scoring_method = "mse", criterion = MSELoss(), 
                     reparam_f = None, ODE_criterion = None, init_conditions = None, scale = True, force = None, backprop_f = None, backprop = False,
-                     ode_coefs = None, solve = True, rounds = None, tr_score_prop = 0.5, q = None, eq_system = True, n_outputs = None, 
+                     ode_coefs = None, solve = True, rounds = None, tr_score_prop = 0.5, q = None, eq_system = False, n_outputs = None, 
                      nonlinear_ode = False, reg_type = "nl_ham"):
         """Performs optimization (with cross-validation).
 
@@ -1449,13 +1440,15 @@ class EchoStateNetworkCV:
             The best parameters found during optimization
 
         """
+        font = {'size'   : 18}
+        plt.rc('font', **font)
         
         #self.multiple_ICs = True if len(init_conditions[0]) > 1 else False
         self.n_outputs = n_outputs
         if n_outputs != len(init_conditions):
             assert False, "n_outputs must match the len of ode_coefs and init_conds"
         self.nl = nonlinear_ode
-
+        self.log2 = np.log(2)
         self.q = q
         self.eq_system = eq_system
         self.rounds = rounds
@@ -1465,6 +1458,10 @@ class EchoStateNetworkCV:
         if self.batch_size > 1:
             if reg_type == "driven_pop":
                 custom_loss = driven_pop_loss
+                force = fforce
+            elif reg_type == "simple_pop":
+                custom_loss = driven_pop_loss
+                force = no_fforce
             elif reg_type == "ham":
                 custom_loss = ham_loss
             elif reg_type == "no_reg":
@@ -1491,18 +1488,15 @@ class EchoStateNetworkCV:
 
         if self.batch_size > 1:
             self.reparam_f = freparam
-            self.force = fforce
+            #self.force = fforce
         else:
             self.reparam_f = reparam_f
-            self.force = force
+        self.force = force
 
         self.scoring_method = scoring_method
         self.criterion = criterion
         self.epochs = epochs
         self.learning_rate = learning_rate
-
-        if self.interactive:
-            self.fig, self.ax = pl.subplots(1,3, figsize = (16,4))
 
         """
         if self.ODE: 
@@ -1709,8 +1703,13 @@ class EchoStateNetworkCV:
 
             self.errorz_step += [min(self.errorz)] * self.batch_size
 
-            assert len(self.errorz) == len(self.errorz_step), "err len: {}, err step: {}".format(len(self.errorz), len(self.errorz_step) )
-            
+            #assert len(self.errorz) == len(self.errorz_step), "err len: {}, err step: {}".format(len(self.errorz), len(self.errorz_step) )
+        else:
+            display.clear_output()
+
+        
+        #display.clear_output(wait=True) 
+        #display.display(pl.gcf())
                     
         # Save to disk if desired
         if not store_path is None:
@@ -1742,9 +1741,6 @@ class EchoStateNetworkCV:
         for var in self.log_vars:
             if var in best_hyper_parameters:
                 best_hyper_parameters[var] = 10. ** best_hyper_parameters[var] 
-        
-        display.clear_output() 
-        display.display(pl.gcf()) 
-        
+                
         # Return best parameters
         return best_hyper_parameters #X_turbo, Y_turbo, state, best_vals, denormed_ #best_arguments

@@ -146,6 +146,23 @@ def printc(string_, color_, end = '\n') :
         }
     print(colorz[color_] + string_ + colorz["endc"] , end = end)
 
+def convert_ode_coefs(ode_coefs_, X):
+    #print('type_X', type_X)
+    ode_coefs = ode_coefs_.copy()
+    if type(ode_coefs_) == list:
+        for i, coef in enumerate(ode_coefs_):
+            if type(coef) == str:
+                if coef[0] == "t" and (coef[1] == "^" or (coef[1] == "*" and coef[2] == "*")):
+                    pow_ = float(re.sub("[^0-9.-]+", "", coef))
+                    ode_coefs[i]  = X ** pow_
+            elif type(coef) in [float, int, type(X)]:
+                pass
+            else:
+                assert False, "ode_coefs must be a list of floats or strings of the form 't^pow', where pow is a real number."
+    else:
+        assert False, "ode_coefs must be a list of floats or strings of the form 't^pow', where pow is a real number."
+    return ode_coefs
+
 tanh_activation = Tanh()
 class EchoStateNetwork(nn.Module):
     """Class with all functionality to train Echo State Nets.
@@ -625,9 +642,6 @@ class EchoStateNetwork(nn.Module):
             self.track_in_grad = False #track_in_grad
 
             self.ode_coefs = ode_coefs
-            ode_coefs = self.ode_coefs.copy()
-            
-
 
             #assert len(init_conditions) == ODE_order
             self.ODE_order = ODE_order
@@ -673,18 +687,7 @@ class EchoStateNetwork(nn.Module):
 
                 #     else:
                 #         init_conds = self.init_conditions
-                if type(self.ode_coefs) == list:
-                    for i, coef in enumerate(self.ode_coefs):
-                        if type(coef) == str:
-                            if coef[0] == "t" and (coef[1] == "*" or (coef[1] == "*" and coef[2] == "*")):
-                                pow_ = float(re.sub("[^0-9.-]+", "", coef))
-                                ode_coefs[i]  = X ** pow_
-                        elif type(coef) in [float, int, type(X)]:
-                            pass
-                        else:
-                            assert False, "ode_coefs must be a list of floats or strings of the form 't^pow', where pow is a real number."
-                else:
-                    assert False, "ode_coefs must be a list of floats or strings of the form 't^pow', where pow is a real number."
+                ode_coefs = convert_ode_coefs(self.ode_coefs, X)
                 
             else:
                 #ensure that X is a two dimensional tensor, or if X is None declare a tensor.
@@ -793,6 +796,8 @@ class EchoStateNetwork(nn.Module):
                     #append columns for the data:
                     self.extended_states = torch.cat((self.X, self.states), axis = 1)
 
+                    del self.states
+
                     #add rows corresponding to bias to the states 
                     self.sb = states_with_bias = torch.cat((ones_like(self.extended_states[:,0].view(-1,1)), self.extended_states), axis = 1)
                     self.sb1 = states_dot_with_bias = torch.cat((zeros_like(self.states_dot[:,0].view(-1,1)), self.states_dot), axis = 1)
@@ -812,8 +817,8 @@ class EchoStateNetwork(nn.Module):
                     g, g_dot = G
                     self.g = g
 
-                self.laststate = self.states[-1, :]
-
+                self.laststate = self.extended_states[-1, 1:]
+                self.force = force
                 self.force_t = force(self.X)
 
                 
@@ -1546,9 +1551,7 @@ class EchoStateNetwork(nn.Module):
                 X = torch.linspace(x0, xf, steps = nsteps, requires_grad=False).view(-1, 1).to(self.device)
             final_t =X.shape[0]
 
-            ode_coefs = self.ode_coefs.copy()
-            if self.ode_coefs[0] == "t**2" or self.ode_coefs[0] == "t^2":
-                ode_coefs[0]  = X ** 2
+            ode_coefs = convert_ode_coefs(self.ode_coefs, X)
 
         #if self.ODE_order:
         #self.track_in_grad = False
@@ -1557,6 +1560,8 @@ class EchoStateNetwork(nn.Module):
         assert X.requires_grad == False#self.track_in_grad
         
         # Run prediction
+
+        val_force_t = self.force(X)
         
         if steps_ahead is None:
             if not self.ODE_order:
@@ -1575,7 +1580,7 @@ class EchoStateNetwork(nn.Module):
                                                 self.LinOut.weight.data, 
                                                 ode_coefs = ode_coefs, 
                                                 init_conds = self.init_conds,
-                                                force_t = force(X),
+                                                force_t = val_force_t,
                                                 enet_alpha = self.enet_alpha, 
                                                 enet_strength = self.enet_strength) 
                     # elif self.ODE_order == 2:
@@ -1605,7 +1610,8 @@ class EchoStateNetwork(nn.Module):
                                               ode_coefs = ode_coefs, 
                                               init_conds = self.init_conds,
                                               enet_alpha = self.enet_alpha, 
-                                              enet_strength = self.enet_strength)
+                                              enet_strength = self.enet_strength,
+                                              force_t = val_force_t)
                         scores.append(score)
                     
                     return scores, pred.detach(), self.id_
