@@ -1830,9 +1830,10 @@ class EchoStateNetwork(nn.Module):
                             y = g*N
 
                             ydot = g_dot * N + N_dot * g
-
-                            for i, cond in enumerate(self.init_conds):
-                                y[:, i] = y[:,i] + cond
+                            yfit[:, 0] = yfit[:,0] + self.init_conds[0][i]
+                            yfit[:, 1] = yfit[:,1] + self.init_conds[1]
+                            # for i, cond in enumerate(self.init_conds):
+                            #     y[:, i] = y[:,i] + cond
 
                             ys.append(y)
                             ydots.append(ydot)
