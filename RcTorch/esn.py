@@ -1817,9 +1817,6 @@ class EchoStateNetwork(nn.Module):
                         #elf.yfit = init_conds[0] + g.pow(1) * self.N
                         #self.ydot = g_dot * self.N +  g * N_dot
                     else:
-                        assert False, f'multiple_ICs not yet implimented for systems'
-                    
-
                         ys = []
                         ydots = []
                         for i, weight in enumerate(self.weights_list):
