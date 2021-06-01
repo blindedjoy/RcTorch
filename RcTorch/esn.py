@@ -1818,9 +1818,29 @@ class EchoStateNetwork(nn.Module):
                         #self.ydot = g_dot * self.N +  g * N_dot
                     else:
                         assert False, f'multiple_ICs not yet implimented for systems'
-                    #y[:, 1] = y[:,1] + self.init_conds[1]
-                    #yy_dot, p_dot = y[:,1].view(-1,1), -y[:,0].view(-1,1)
-                    #ydot = torch.cat((yy_dot, p_dot), axis = 1)
+                    
+
+                        ys = []
+                        ydots = []
+                        for i, weight in enumerate(self.weights_list):
+                            #print("w", i)
+                            self.LinOut.weight = Parameter(weight.view(self.n_outputs, -1))
+                            self.LinOut.bias = Parameter(self.biases_list[i].view(1, self.n_outputs))
+
+                            N = self.LinOut(states)
+                            N_dot = self.calc_Ndot(states_dot, cutoff = False)
+
+                            y = g*N
+
+                            ydot = g_dot * N + N_dot * g
+
+                            for i, cond in enumerate(self.init_conds):
+                                y[:, i] = y[:,i] + cond
+
+                            ys.append(y)
+                            ydots.append(ydot)
+
+                        return ys, ydots
 
                 
                 # if self.ODE_order == 2:
