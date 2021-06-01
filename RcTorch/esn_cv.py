@@ -1586,7 +1586,7 @@ class EchoStateNetworkCV:
                        "eq_system" : self.eq_system,
                        "nl" : self.nl,
                        "backprop_f" : self.backprop_f,
-                       "epochs" : self.epochs
+                       "epochs" : self.epochs,
                        "SOLVE" : self.solve, 
                       #"track_in_grad" : False,
                       "init_conditions" : self.init_conditions,
