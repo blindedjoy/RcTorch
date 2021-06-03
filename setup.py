@@ -2,7 +2,7 @@ from distutils.core import setup
 setup(
   name = 'RcTorch',         # How you named your package folder (MyLib)
   packages = ['RcTorch'],   # Chose the same as "name"
-  version = '0.7',      # Start with a small number and increase it with every change you make
+  version = '0.7162',      # Start with a small number and increase it with every change you make
   license='Harvard',        # Chose a license from here: https://help.github.com/articles/licensing-a-repository
   description='A Python 3 toolset for creating and optimizing Echo State Networks. This library is an extension and expansion of the previous library written by Reinier Maat: https://github.com/1Reinier/Reservoir',# Give a short description about your library
   author = 'Hayden Joy',                   # Type in your name

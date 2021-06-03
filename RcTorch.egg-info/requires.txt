@@ -6,6 +6,7 @@ pandas
 seaborn
 pathlib
 matplotlib
+llvmlite
 torch
 torchvision
 torchaudio
