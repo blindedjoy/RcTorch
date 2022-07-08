@@ -1,14 +1,13 @@
 Metadata-Version: 2.1
-Name: RcTorch
+Name: rctorch
 Version: 0.7162
 Summary: A Python 3 toolset for creating and optimizing Echo State Networks. This library is an extension and expansion of the previous library written by Reinier Maat: https://github.com/1Reinier/Reservoir
 Home-page: https://github.com/blindedjoy/RcTorch-private
+Download-URL: https://github.com/blindedjoy/RcTorch/archive/v_01.tar.gz
 Author: Hayden Joy
 Author-email: hnjoy@mac.com
 License: Harvard
-Download-URL: https://github.com/blindedjoy/RcTorch/archive/v_01.tar.gz
 Keywords: Echo State Network,ESN,Reservoir Computing,Echo State Networks,Optimization,BoTorch,PyTorch,Bayesian
-Platform: UNKNOWN
 Classifier: Development Status :: 3 - Alpha
 Classifier: Intended Audience :: Developers
 Classifier: Topic :: Software Development :: Build Tools
@@ -18,6 +17,3 @@ Classifier: Programming Language :: Python :: 3.8
 Classifier: Programming Language :: Python :: 3.6
 License-File: LICENSE.txt
 License-File: AUTHORS
-
-UNKNOWN
-
