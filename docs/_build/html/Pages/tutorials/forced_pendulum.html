@@ -1,0 +1,311 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+    <title>RcTorch Tutorial: Forced Pendulum Example &#8212; RcTorch 1.0.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css" />
+    <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="prev" title="RcTorch API" href="../api.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="rctorch-tutorial-forced-pendulum-example">
+<h1>RcTorch Tutorial: Forced Pendulum Example<a class="headerlink" href="#rctorch-tutorial-forced-pendulum-example" title="Permalink to this headline">¶</a></h1>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Permalink to this headline">¶</a></h2>
+<section id="using-pip">
+<h3>Using pip<a class="headerlink" href="#using-pip" title="Permalink to this headline">¶</a></h3>
+<p>Like most standard libraries, <code class="xref py py-mod docutils literal notranslate"><span class="pre">RcTorch</span></code> is hosted on [<code class="xref py py-mod docutils literal notranslate"><span class="pre">PyPI</span></code>](<a class="reference external" href="https://pypi.org/project/RcTorch/">https://pypi.org/project/RcTorch/</a>). To install the latest stable release use pip:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">U</span> <span class="n">rctorch</span>  <span class="c1"># &#39;-U&#39; means update to latest version</span>
+</pre></div>
+</div>
+</section>
+<section id="imports">
+<h3>Imports<a class="headerlink" href="#imports" title="Permalink to this headline">¶</a></h3>
+<p>To import the RcTorch classes and functions use the following:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">rctorch</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="load-data">
+<h2>Load data<a class="headerlink" href="#load-data" title="Permalink to this headline">¶</a></h2>
+<p>RcTorch has several built in datasets. Among these is the forced pendulum dataset. Here we demonstrate how the “forced pendulum” data can be loaded</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">fp_data</span> <span class="o">=</span> <span class="n">rctorch</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;forced_pendulum&quot;</span><span class="p">,</span>
+                             <span class="n">train_proportion</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span>
+
+<span class="n">force_train</span><span class="p">,</span> <span class="n">force_test</span> <span class="o">=</span> <span class="n">fp_data</span><span class="p">[</span><span class="s2">&quot;force&quot;</span><span class="p">]</span>
+<span class="n">target_train</span><span class="p">,</span> <span class="n">input_test</span> <span class="o">=</span> <span class="n">fp_data</span><span class="p">[</span><span class="s2">&quot;target&quot;</span><span class="p">]</span>
+
+<span class="c1">#Alternatively you can use sklearn&#39;s train_test_split.</span>
+</pre></div>
+</div>
+</section>
+<section id="set-up-hyper-parameters">
+<h2>Set up Hyper-parameters<a class="headerlink" href="#set-up-hyper-parameters" title="Permalink to this headline">¶</a></h2>
+<p>Hyper-parameters, whether they are entered manually by the RcTorch software user or optimized by the RcBayes class (see the <a class="reference internal" href="#bo"><span class="std std-ref">Bayesian Optimization</span></a> section to see how to automatically tune hyper-parameters), are generally given to the network as a dictionary.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1">#declare the hyper-parameters</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">hps</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;connectivity&#39;</span><span class="p">:</span> <span class="mf">0.4</span><span class="p">,</span>
+           <span class="s1">&#39;spectral_radius&#39;</span><span class="p">:</span> <span class="mf">1.13</span><span class="p">,</span>
+           <span class="s1">&#39;n_nodes&#39;</span><span class="p">:</span> <span class="mi">202</span><span class="p">,</span>
+           <span class="s1">&#39;regularization&#39;</span><span class="p">:</span> <span class="mf">1.69</span><span class="p">,</span>
+           <span class="s1">&#39;leaking_rate&#39;</span><span class="p">:</span> <span class="mf">0.0098085</span><span class="p">,</span>
+           <span class="s1">&#39;bias&#39;</span><span class="p">:</span> <span class="mf">0.49</span><span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="setting-up-your-very-own-rcnetwork">
+<h2>Setting up your very own RcNetwork<a class="headerlink" href="#setting-up-your-very-own-rcnetwork" title="Permalink to this headline">¶</a></h2>
+<p>RcTorch has two principal python classes. The first is the RcNetwork class, which stands for “Reservoir Computer Network”, the long name being reservoir computer neural network.</p>
+<p>An echostate network is the same thing as an RC network because another name for “Reservoir Computer” is “EchoState Network”</p>
+<p>In order to use the fit :method: and the test :method:, we must first declare the RcNetwork object</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">my_rc</span> <span class="o">=</span> <span class="n">RcNetwork</span><span class="p">(</span><span class="o">**</span><span class="n">hps</span><span class="p">,</span> <span class="n">random_state</span> <span class="o">=</span> <span class="mi">210</span><span class="p">,</span> <span class="n">feedback</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span>
+
+<span class="c1">#fitting the data:</span>
+<span class="n">my_rc</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">y</span> <span class="o">=</span> <span class="n">target_train</span><span class="p">)</span>
+
+<span class="c1">#making our prediction</span>
+<span class="n">score</span><span class="p">,</span> <span class="n">prediction</span> <span class="o">=</span> <span class="n">my_rc</span><span class="o">.</span><span class="n">test</span><span class="p">(</span><span class="n">y</span> <span class="o">=</span> <span class="n">target_test</span><span class="p">)</span>
+<span class="n">my_rc</span><span class="o">.</span><span class="n">combined_plot</span><span class="p">()</span>
+</pre></div>
+</div>
+<a class="reference internal image-reference" href="../../_images/traj_1.png"><img alt="Alternative text" class="align-center" src="../../_images/traj_1.png" style="width: 1000px;" /></a>
+<p>Feedback allows the network to feed in the prediction at the previous timestep as an input. This helps the RC to make longer and more stable predictions in many situations.</p>
+</section>
+<section id="setting-up-your-very-own-parameter-aware-rcnetwork">
+<h2>Setting up your very own Parameter Aware RcNetwork<a class="headerlink" href="#setting-up-your-very-own-parameter-aware-rcnetwork" title="Permalink to this headline">¶</a></h2>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>In Robotics and Control theory, an observer is a parameter which the user knows, even for future values.
+For example, we might know, or be able to control, how much a robot pushes on a pendulum. The time-series we know are called <span class="math notranslate nohighlight">\(\text{observers}\)</span>, and all inputs (<span class="math notranslate nohighlight">\(\texttt{X}\)</span>) to RcTorch are treated as such.</p>
+</div>
+<p>Giving RcTorch inputs is easy! just supply an argument to <span class="math notranslate nohighlight">\(\texttt{X}\)</span>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">my_rc</span> <span class="o">=</span> <span class="n">RcNetwork</span><span class="p">(</span><span class="o">**</span><span class="n">hps</span><span class="p">,</span> <span class="n">random_state</span> <span class="o">=</span> <span class="mi">210</span><span class="p">,</span> <span class="n">feedback</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span>
+
+<span class="c1">#fitting the data:</span>
+<span class="n">my_rc</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span> <span class="o">=</span> <span class="n">force_train</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">target_train</span><span class="p">)</span>
+
+<span class="c1">#making our prediction</span>
+<span class="n">score</span><span class="p">,</span> <span class="n">prediction</span> <span class="o">=</span> <span class="n">my_rc</span><span class="o">.</span><span class="n">test</span><span class="p">(</span><span class="n">X</span> <span class="o">=</span> <span class="n">force_test</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">target_test</span><span class="p">)</span>
+<span class="n">my_rc</span><span class="o">.</span><span class="n">combined_plot</span><span class="p">()</span>
+</pre></div>
+</div>
+<a class="reference internal image-reference" href="../../_images/traj_2.png"><img alt="Alternative text" class="align-center" src="../../_images/traj_2.png" style="width: 1000px;" /></a>
+</section>
+<section id="bayesian-optimization">
+<span id="bo"></span><h2>Bayesian Optimization<a class="headerlink" href="#bayesian-optimization" title="Permalink to this headline">¶</a></h2>
+<p>Unlike most other reservoir neural network packages ours offers the automatically tune hyper-parameters.</p>
+<p>In order to tune the hyper-parameters the user can use our RcBayesOpt class. The key argument to this class’s <code class="xref py py-meth docutils literal notranslate"><span class="pre">__init__()</span></code> method is the <code class="xref py py-attr docutils literal notranslate"><span class="pre">bounds_dict</span></code> argument. The keys of this bounds dict should be the key hyper-parameters of the model.</p>
+<p>In particular, an overview of the main HPs used in this study is given by the <a class="reference internal" href="#label"><span class="std std-ref">Key Hyper-parameters used in RcTorch</span></a> table below. Here <span class="math notranslate nohighlight">\(N\)</span> represents the total number of nodes in the reservoir. The spectral radius <span class="math notranslate nohighlight">\(\rho\)</span> is the maximum eigenvalue of the adjacency matrix, (the adjacency matrix determines the structure of the reservoir). The hyper-parameter <span class="math notranslate nohighlight">\(\zeta\)</span> is the connectivity of the adjacency matrix. The bias <span class="math notranslate nohighlight">\(b_0\)</span> used in the calculation of the hidden states and the leakage rate <span class="math notranslate nohighlight">\(\alpha\)</span> controls the memory of the network, i.e. how much the hidden state <span class="math notranslate nohighlight">\(h_k\)</span> depends on the hidden state <span class="math notranslate nohighlight">\(h_{k-1}\)</span>. The ridge regression coefficient <span class="math notranslate nohighlight">\(\beta\)</span> determines the strength of regularization at inference (when solving, in one shot, for <span class="math notranslate nohighlight">\(\bf{W}_{out}\)</span> ).</p>
+<span id="label"></span><table class="colwidths-given docutils align-default" id="hp-table-0">
+<caption><span class="caption-text">Key Hyper-parameters used in RcTorch</span><a class="headerlink" href="#hp-table-0" title="Permalink to this table">¶</a></caption>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 40%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p><span class="math notranslate nohighlight">\(\bf{\text{HP}}\)</span></p></th>
+<th class="head"><p><span class="math notranslate nohighlight">\(\bf{\texttt{RcTorch Variable name}}\)</span></p></th>
+<th class="head"><p><span class="math notranslate nohighlight">\(\bf{\text{Description}}\)</span></p></th>
+<th class="head"><p><span class="math notranslate nohighlight">\(\bf{\text{Search Space}}\)</span></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><span class="math notranslate nohighlight">\(N\)</span></p></td>
+<td><p><span class="math notranslate nohighlight">\(\texttt{n_nodes}\)</span></p></td>
+<td><p>number of reservoir neurons</p></td>
+<td><p>typically 100 to 500</p></td>
+</tr>
+<tr class="row-odd"><td><p><span class="math notranslate nohighlight">\(\rho\)</span></p></td>
+<td><p><span class="math notranslate nohighlight">\(\texttt{spectral_radius}\)</span></p></td>
+<td><p>Spectral radius max eigenvalue of <span class="math notranslate nohighlight">\(\bf{W}_text{res}\)</span></p></td>
+<td><p>[0,1]</p></td>
+</tr>
+<tr class="row-even"><td><p><span class="math notranslate nohighlight">\(\zeta\)</span></p></td>
+<td><p><span class="math notranslate nohighlight">\(\texttt{connectivity}\)</span></p></td>
+<td><p>connectivity of the reservoir (1 - sparsity)</p></td>
+<td><p>logarithmic</p></td>
+</tr>
+<tr class="row-odd"><td><p><span class="math notranslate nohighlight">\(\mathbf{b_0}\)</span></p></td>
+<td><p><span class="math notranslate nohighlight">\(\texttt{bias}\)</span></p></td>
+<td><p>bias used in the calculation of <span class="math notranslate nohighlight">\(\mathbf{h_k}\)</span></p></td>
+<td><p>[-1,1]</p></td>
+</tr>
+<tr class="row-even"><td><p><span class="math notranslate nohighlight">\(\alpha\)</span></p></td>
+<td><p><span class="math notranslate nohighlight">\(\texttt{leaking_rate}\)</span></p></td>
+<td><p>leakage rate</p></td>
+<td><p>[0,1]</p></td>
+</tr>
+<tr class="row-odd"><td><p><span class="math notranslate nohighlight">\(\beta\)</span></p></td>
+<td><p><span class="math notranslate nohighlight">\(\texttt{regularization}\)</span></p></td>
+<td><p>ridge regression coefficient</p></td>
+<td><p>logarithmic</p></td>
+</tr>
+</tbody>
+</table>
+<section id="setting-up-the-rcbayesopt-object">
+<h3>Setting up the RcBayesOpt object<a class="headerlink" href="#setting-up-the-rcbayesopt-object" title="Permalink to this headline">¶</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1">#any hyper parameter can have &#39;log_&#39; in front of it&#39;s name.</span>
+<span class="c1">#RcTorch will interpret this properly.</span>
+<span class="n">bounds_dict</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;log_connectivity&quot;</span> <span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="mf">2.5</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.1</span><span class="p">),</span>
+               <span class="s2">&quot;spectral_radius&quot;</span> <span class="p">:</span> <span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+               <span class="s2">&quot;n_nodes&quot;</span> <span class="p">:</span> <span class="p">(</span><span class="mi">300</span><span class="p">,</span><span class="mi">302</span><span class="p">),</span>
+               <span class="s2">&quot;log_regularization&quot;</span> <span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+               <span class="s2">&quot;leaking_rate&quot;</span> <span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">),</span>
+               <span class="s2">&quot;bias&quot;</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span>
+               <span class="p">}</span>
+<span class="n">rc_specs</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;feedback&quot;</span> <span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+             <span class="s2">&quot;reservoir_weight_dist&quot;</span> <span class="p">:</span> <span class="s2">&quot;uniform&quot;</span><span class="p">,</span>
+             <span class="s2">&quot;output_activation&quot;</span> <span class="p">:</span> <span class="s2">&quot;tanh&quot;</span><span class="p">,</span>
+             <span class="s2">&quot;random_seed&quot;</span> <span class="p">:</span> <span class="mi">209</span><span class="p">}</span>
+
+<span class="n">rc_bo</span> <span class="o">=</span> <span class="n">RcBayesOpt</span><span class="p">(</span><span class="n">bounds</span> <span class="o">=</span> <span class="n">bounds_dict</span><span class="p">,</span>
+                    <span class="n">scoring_method</span> <span class="o">=</span> <span class="s2">&quot;nmse&quot;</span><span class="p">,</span>
+                    <span class="n">n_jobs</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+                    <span class="n">cv_samples</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+                    <span class="n">initial_samples</span><span class="o">=</span> <span class="mi">25</span><span class="p">,</span>
+                    <span class="o">**</span><span class="n">rc_specs</span>
+                    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="running-the-bo-optimization">
+<h3>Running the BO optimization<a class="headerlink" href="#running-the-bo-optimization" title="Permalink to this headline">¶</a></h3>
+<p>RcTorch uses a a special version of Bayesian Optimization known as <code class="xref py py-mod docutils literal notranslate"><span class="pre">TuRBO</span></code> which can train many RCs at once. <code class="xref py py-mod docutils literal notranslate"><span class="pre">TuRBO</span></code> runs multiple BO “arms” at once, essentially running local BO runs in parallel. RcTorch shows three panels to represent <code class="xref py py-mod docutils literal notranslate"><span class="pre">TuRBO</span></code> training. The first panel shows the BO history, with all the BO scores in green and the minimum value in blue. The second panel shows the <code class="xref py py-mod docutils literal notranslate"><span class="pre">TuRBO</span></code> convergence. The third panel shows the best BO prediction in the most recent round.</p>
+<p>Running Bayesian Optimization (BO) with <code class="xref py py-mod docutils literal notranslate"><span class="pre">RcTorch</span></code> is easy. We just need to run the <code class="xref py py-meth docutils literal notranslate"><span class="pre">optimize()</span></code> method. The key arguments include <code class="xref py py-attr docutils literal notranslate"><span class="pre">n_trust_regions</span></code> which determines the number of trust regions (parallel BO runs), the
+<code class="xref py py-attr docutils literal notranslate"><span class="pre">max_evals</span></code> argument which determines the maximum number of RCs to train, and the <code class="xref py py-attr docutils literal notranslate"><span class="pre">scoring_method</span></code> which determines the RC loss function.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">opt_hps</span> <span class="o">=</span> <span class="n">rc_bo</span><span class="o">.</span><span class="n">optimize</span><span class="p">(</span> <span class="n">n_trust_regions</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span>
+                                  <span class="n">max_evals</span> <span class="o">=</span> <span class="mi">500</span><span class="p">,</span>
+                                  <span class="n">x</span> <span class="o">=</span> <span class="n">force_train</span><span class="p">,</span>
+                                  <span class="n">scoring_method</span> <span class="o">=</span> <span class="s2">&quot;nmse&quot;</span><span class="p">,</span>
+                                  <span class="n">y</span> <span class="o">=</span> <span class="n">target_train</span><span class="p">)</span>
+</pre></div>
+</div>
+<a class="reference internal image-reference" href="../../_images/bo_panels.png"><img alt="Alternative text" class="align-center" src="../../_images/bo_panels.png" style="width: 2000px;" /></a>
+<p>The BO run returns a new set of HPs which we can use with a new RcNetwork.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1">#new_hps</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">opt_hps</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;connectivity&#39;</span><span class="p">:</span> <span class="mf">0.4</span><span class="p">,</span>
+           <span class="s1">&#39;spectral_radius&#39;</span><span class="p">:</span> <span class="mf">1.13</span><span class="p">,</span>
+           <span class="s1">&#39;n_nodes&#39;</span><span class="p">:</span> <span class="mi">202</span><span class="p">,</span>
+           <span class="s1">&#39;regularization&#39;</span><span class="p">:</span> <span class="mf">1.69</span><span class="p">,</span>
+           <span class="s1">&#39;leaking_rate&#39;</span><span class="p">:</span> <span class="mf">0.0098085</span><span class="p">,</span>
+           <span class="s1">&#39;bias&#39;</span><span class="p">:</span> <span class="mf">0.49</span><span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">RcTorch</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../api.html">RcTorch API</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">RcTorch Tutorial: Forced Pendulum Example</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#using-pip">Using pip</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#imports">Imports</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#load-data">Load data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#set-up-hyper-parameters">Set up Hyper-parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#setting-up-your-very-own-rcnetwork">Setting up your very own RcNetwork</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#setting-up-your-very-own-parameter-aware-rcnetwork">Setting up your very own Parameter Aware RcNetwork</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#bayesian-optimization">Bayesian Optimization</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#setting-up-the-rcbayesopt-object">Setting up the RcBayesOpt object</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#running-the-bo-optimization">Running the BO optimization</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="../api.html" title="previous chapter">RcTorch API</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2022, Hayden Joy.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 4.5.0</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="../../_sources/Pages/tutorials/forced_pendulum.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

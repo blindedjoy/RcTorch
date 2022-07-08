@@ -1,0 +1,12 @@
+numpy
+scipy
+paramz
+pandas
+seaborn
+pathlib
+matplotlib
+torch
+torchvision
+torchaudio
+gpytorch
+botorch

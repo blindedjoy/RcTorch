@@ -1,6 +1,6 @@
-from .esn import *
+from .rc import *
 from .scr import *
-from .esn_cv import *
+from .rc_bo import *
 from .clustering import *
 import pkg_resources
 
