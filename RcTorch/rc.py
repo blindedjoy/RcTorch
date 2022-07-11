@@ -252,6 +252,7 @@ class RcNetwork(nn.Module):
         
         self.n_nodes = int(self.n_nodes)
         self.leaking_rate = [leaking_rate, 1 - leaking_rate]
+
         self.leaking_rate_orig = deepcopy(self.leaking_rate)
         #https://towardsdatascience.com/logistic-regression-on-mnist-with-pytorch-b048327f8d19
         #self.classification = classification
@@ -519,7 +520,6 @@ class RcNetwork(nn.Module):
 
         else:
             self._update = self._update_Iterative
-
         
         with torch.no_grad():
             
@@ -788,7 +788,6 @@ class RcNetwork(nn.Module):
 
                 #     self.states, self.states_dot, states_dot = recurrence(self.states, self, self.X_extended, y)
                 # else:
-
                 
 
                 self.states = torch.zeros((1, self.n_nodes), **self.dev)
@@ -842,13 +841,12 @@ class RcNetwork(nn.Module):
                     self.init_conds = init_conditions.copy()
                     ode_coefs = _convert_ode_coefs(self.ode_coefs, self.X)
 
+                    self.force = force
+                    self.force_t = self.force(self.X)
+
 
 
                 #self.laststate = self.extended_states[-1, 1:]
-
-                if self.ODE_order:
-                    self.force = force
-                    self.force_t = self.force(self.X)
                 
                 with torch.no_grad():
 
@@ -859,6 +857,8 @@ class RcNetwork(nn.Module):
 
                     if SOLVE: #and not out_weights:
                         #print("SOLVING!")
+
+
 
                         #include everything after burn_in 
                         if not self.ODE_order:
@@ -2257,14 +2257,14 @@ class RcNetwork(nn.Module):
 
         """
         #self.leaking_rate_orig = self.leaking_rate.copy()
-
-        ones= torch.ones((X.shape[0], 1)).to(self.device)
-        try:
-            self.leaking_rate[0] = self.leaking_rate_orig[0] * ones
-            self.leaking_rate[1] = self.leaking_rate_orig[1] * ones
-        except:
-            self.leaking_rate[0] = float(self.leaking_rate_orig[0][0]) * ones
-            self.leaking_rate[1] = float(self.leaking_rate_orig[1][0]) * ones
+        pass
+        # ones= torch.ones((X.shape[0], 1)).to(self.device)
+        # try:
+        #     self.leaking_rate[0] = self.leaking_rate_orig[0] * ones
+        #     self.leaking_rate[1] = self.leaking_rate_orig[1] * ones
+        # except:
+        #     self.leaking_rate[0] = float(self.leaking_rate_orig[0][0]) * ones
+        #     self.leaking_rate[1] = float(self.leaking_rate_orig[1][0]) * ones
     
     #from this point on are internal methods
     def _scale(self, inputs=None, outputs=None, keep=False, normalize = False):
@@ -2809,6 +2809,7 @@ class RcNetwork(nn.Module):
         return next_state
 
     def _update_Iterative(self, update, state, t):
+        #assert False, f"self.leaking_rate {self.leaking_rate}"
         """Right here do the update if there is no random sampling (leaking rate is a vector, 2*1)"""
         next_state = self.leaking_rate[0] * update + self.leaking_rate[1] * state
         return next_state
@@ -3155,25 +3156,12 @@ class RcNetwork(nn.Module):
 
 
             for t in range(1, X.shape[0]):
-                #print("super")
-                # self.state[t, :] = self.forward(t, input_ = X[t, :].T,
-                #                                        current_state = self.state[t-1,:], 
-                #                                        output_pattern = y[t-1]).squeeze()
-
-                #TODO changes from X[t, :].T to X[t-1, :].T 6/29/22 2:33 pm
-                input_t =  X[t-1, :].T
+                #print(t)
+                input_t =  X[t, :].T
                 state_t, _ = self.train_state(t, X = input_t, state = states[t-1,:], y = y[t-1,:])
 
                 states = torch.cat([states, state_t.view(-1, self.n_nodes)], axis = 0)
-            # for t in range(0, X.shape[0]):
-            #     input_t =  X[t, :].T
-            #     state_t, _ = self.train_state(t, X = input_t,
-            #                               state = states[t,:], 
-            #                               y = y[t,:],
-            #                               output = False)
 
-
-            #     states = torch.cat([states, state_t.view(-1, self.n_nodes)], axis = 0)
 
         return states
 
