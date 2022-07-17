@@ -3,6 +3,7 @@ RcTorch Readme file
 ====================
 
 A Pytorch toolset for creating and optimizing Echo State Networks.
+See the complete RcTorch readthedocs documentation at `readthedocs <https://rctorch.readthedocs.io/en/latest/>`_.
 
     - License: 2020-2022 MIT  
     - Authors: Hayden Joy, Marios Mattheakis

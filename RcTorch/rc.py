@@ -232,9 +232,9 @@ class RcNetwork(nn.Module):
 
         #finally assign the rest of the kwargs for good measure.
         np.random.seed(random_state)
-        for key, val in kwargs.items():
-            if key != 'self':
-                setattr(self, key, val)
+        # for key, val in kwargs.items():
+        #     if key != 'self':
+        #         setattr(self, key, val)
         ########################################## END AUTOMATIC ASSIGN ATTRIBUTES ################################################
 
 

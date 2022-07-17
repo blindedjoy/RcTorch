@@ -291,22 +291,6 @@ def generate_batch(
                     X_next = thompson_sampling(X_cand, num_samples=batch_size)
                     drawn = True
             except:
-                # thompson_sampling = MaxPosteriorSampling(model=model, replacement=False)
-                # X_next = thompson_sampling(X_cand+torch.rand_like(X_cand)*0.002, num_samples=batch_size)
-                # drawn = True
-                # #assert False, 'failed to draw from thompson_sampling'
-                # pass
-                # try:
-                #     ei = qExpectedImprovement(model, Y.max(), maximize=True)
-                #     with torch.no_grad():  
-                #         X_next, acq_value = optimize_acqf(
-                #             ei,
-                #             bounds=torch.stack([tr_lb, tr_ub]),
-                #             q=batch_size,
-                #             num_restarts=num_restarts,
-                #             raw_samples=raw_samples,
-                #         )
-                # except:
                 X_next = torch.rand_like(X_cand[0].reshape(1,-1))
 
         
@@ -453,7 +437,6 @@ class ReservoirBuildingBlocks:
         with torch.no_grad():
             n, m = self.n_nodes_, self.n_inputs_
             in_w_shape_ = (n, m)
-            print('m,n', m,n)
 
             #at the moment all input weight matrices use uniform bias.
             self.bias = torch.rand( n, 1, generator = gen, device = self.device) * 2 - 1
@@ -462,7 +445,6 @@ class ReservoirBuildingBlocks:
             if self.input_weight_type_ == "uniform":
                 self.in_weights = torch.rand((n,m), generator = gen, device = self.device)
                 self.in_weights = self.in_weights * 2 - 1
-                print('in_weights', self.in_weights.shape, 'm', m, 'n_in', self.n_inputs_)
 
             elif self.input_weight_type_ == "exponential":
                 printc("BUILDING SIGN_", 'fail')
@@ -575,14 +557,8 @@ def execute_objective(parallel_arguments, parameters, X_turbo_spec, trust_region
     backprop_args = parallel_arguments["backprop_args"]
     cv_args =  parallel_arguments["cv_args"]
     log_score, tr_score_prop = cv_args["log_score"],  cv_args["tr_score_prop"]
-    
-    #TODO Take the parallelism away from the batches, and give it to the trust_regions.
+
     total_score = 0
-
-    # print(f'parameters {parameters}')
-    # sleep(1)
-
-    # assert False, f'parameters, {parameters}'
 
     RC = RcNetwork(**declaration_args, **parameters, id_ = 1)
     train_args = parallel_arguments["train_args"]
@@ -620,16 +596,9 @@ def execute_objective(parallel_arguments, parameters, X_turbo_spec, trust_region
             val_score = cv_sample_score = process_score(val_score)
             val_scores = [torch.log10(val_score)]
 
-            #for j, ... here build in the capability to take in multiple rounds of data.
-
-        # if id_ != 0:
-        #     del pred_;
-
         total_score += cv_sample_score
 
     total_score = total_score / (n_cv_samples * len(val_scores))
-    #print(f'total score: {total_score}')
-    
     
     common_args = {"X_turbo_spec" : X_turbo_spec, "trust_region_id" : trust_region_id} #, "job_id" : job_id
     if ode:
@@ -644,15 +613,6 @@ def execute_objective(parallel_arguments, parameters, X_turbo_spec, trust_region
                                     "val_y" : val_input["y"], 
                                     "score" : val_score, 
                                     **common_args}
-
-        # return {"scores" : scores, 
-        #         "weights": gd_weights, 
-        #         "biases" : gd_biases,
-        #         "ys"     : ys,
-        #         "ydots"  : ydots,
-        #         "losses" : Ls}
-    # else:
-    #     return float(total_score), None, id_
 
 #@ray.remote( max_calls=1)
 def eval_objective_remote(parallel_args_id, parameters, dtype = None, device = None, plot_type = "error",  *args):
@@ -701,19 +661,14 @@ def eval_objective_remote(parallel_args_id, parameters, dtype = None, device = N
                       "best_score" : min(scores)}
        
         for i, score in enumerate(scores):
-            #score = score.view(1,1)
             if not i:
                 Scores_ = [score]
             else:
                 Scores_.append(score)
-
         
         Scores_ = torch.tensor(Scores_, dtype = dtype, device = device, requires_grad = False).unsqueeze(-1)
 
-        return X_turbo_specs, -Scores_, batch_dict #{ "pred" : pred, "y": y, "trust_region_id": trust_region_id}
-
-
-        #float(total_score), {"pred": pred_, "val_y" : val_input["y"], "score" : val_score}, id_
+        return X_turbo_specs, -Scores_, batch_dict
 
 def if_split(tensor, start_index, train_stop_index, validate_stop_index):
     """
@@ -782,7 +737,7 @@ class RcBayesOpt:
         Build ESNs with feedback ('teacher forcing') if available
     verbose : bool
         Verbosity on or off
-    device : string or torch device                                 #TODO flexible implimentation
+    device : string or torch device                                 
         Torch device (either 'cpu' or 'cuda')
     interactive : bool
         if true, make interactive python plots. Useful in a jupyter notebook.
@@ -888,11 +843,7 @@ class RcBayesOpt:
         if self.device == torch_device('cuda'):
             torch.cuda.empty_cache()
         
-        print("FEEDBACK:", feedback, ", device:", device)
-
         #self.Distance_matrix = Distance_matrix
-
-        print("parameters", self.parameters)
 
         self._check_bounds(self.parameters)
 
@@ -945,7 +896,6 @@ class RcBayesOpt:
 
                 if type(bounds[var]) in [tuple, list]:
                     
-                    print(var, llim, ulim, bounds[var])
                     if llim is not None:
                         if bounds[var][0] < llim:
                             assert False, f'{var} limit is illegal, the bound cannot be lower than {llim}'
@@ -1059,43 +1009,21 @@ class RcBayesOpt:
             Arguments that can be fed into an ESN
 
         """
-
-
         # Denormalize free parameters
         denormalized_values = self._denormalize_bounds(x)
 
-
         arguments = dict(zip(self.free_parameters, denormalized_values.flatten()))
-
-        
-
-        # self.log_vars = ['connectivity', 'llambda', 'llambda2', 'enet_strength',
-        #                  'noise', 'regularization', 'dt', 'gamma_cyclic', 'sigma',
-        #                  #'input_connectivity', 'feedback_connectivity'
-        #                  ]
-
 
         # Add fixed parameters
         for name in self.fixed_parameters:
             value = self.bounds[name]
             arguments[name] = value
-            # if name in self.log_vars:
-            #     arguments[name] = 10. ** value
-            # else:
 
         user_var_list = list(arguments.keys())
         log_var_indices = ['log_' in str_ for str_ in user_var_list]
         user_variables = [(str_.split(sep = 'log_'))[-1] for str_ in user_var_list]
 
-
-
         self.log_vars = list(np.array(user_variables)[log_var_indices])
-
-        # for var in self.log_vars:
-        #     if var in arguments:
-        #         arguments[var] = 10. ** arguments[var]  # Log scale correction
-        #         print("correcting", var)
-
 
         for var in self.log_vars:
             arguments[var] = 10. ** arguments['log_' + var]
@@ -1241,11 +1169,9 @@ class RcBayesOpt:
 
         fit_dict = {"X": train_x,
                     "y": train_y}
-        #"beta": train_beta}
 
         val_dict = {"X": val_x,
                     "y": val_y}
-        #"beta": val_beta}
 
         return (fit_dict, val_dict)
         
@@ -1407,7 +1333,6 @@ class RcBayesOpt:
 
             # Plot 1: the training history of the bayesian optimization
             
-            #font_dict = {"prop" : {"size":14}}
             font_dict = legend_font_dict =  {"prop" : {'size': 12}}
             ticks_font_size = 14
 
@@ -1444,10 +1369,6 @@ class RcBayesOpt:
             plot[0].set_yscale("log")
             
             plot[0].xaxis.set_major_locator(MaxNLocator(integer=True))
-
-            #self.ax[0].set_ylim(10**-8,1)
-            # self.ax[0].set_xtickslabels(fontsize= ticks_font_size )
-            # self.ax[0].set_ytickslabels(fontsize= ticks_font_size )
 
             plot[1].axhline(np.log(len_max)/self.log2, color = 'green', label = 'max length')
             plot[1].set_title("TURBO state")
@@ -1486,65 +1407,16 @@ class RcBayesOpt:
             display.display(pl.gcf())
 
             #clear the plot outputt and then re-plot
-             
-
-    # def eval_objective(self, parameters, plot_type = "error", *args):
-    #     """
-    #     This version of the RC helper function
-
-    #     Parameters
-    #     -------
-    #     parameters: torch.tensor
-    #         a torch.tensor of the hyper-paramters drawn from the BO_step at time t
-
-    #     plot_type
-
-    #     Returns
-    #     -------
-
-    #     """
-    #     parameter_lst, trust_region_id = parameters
-        
-    #     num_processes = len(parameter_lst)
-        
-    #     results = ray.get([execute_objective.remote(self.parallel_args_id, parameter_lst[i], i, id(parameter_lst[i])) for i in range(num_processes)])
-
-    #     results = sorted(results, key=lambda x: x[2]) 
-    #     results = [(result[0], result[1]) for result in results]
-    #     scores, preds = list(zip(*results)) 
-
-    #     assert len(scores) == len(preds), f'len scores {len(scores)} len preds {len(preds)}'
-
-    #     k = best_score_index = np.argmin(scores)
-
-    #     #if id_ != 0:
-
-    #     batch_dict = {"pred" : preds[k]["pred"], "y" : preds[k]["val_y"], "trust_region_id": trust_region_id, "best_score" : min(scores)}
-        
-
-    #     for i, score in enumerate(scores):
-    #         #score = score.view(1,1)
-    #         if not i:
-    #             Scores_ = [score]
-    #         else:
-    #             Scores_.append(score)
-
-        
-    #     Scores_ = torch.tensor(Scores_, dtype = self.dtype, device = self.device, requires_grad = False).unsqueeze(-1)
-
-    #     return -Scores_, batch_dict #{ "pred" : pred, "y": y, "trust_region_id": trust_region_id}
 
     
-    
-
-    
-    def optimize(self, n_trust_regions = 1, max_evals = None, y = None, x=None, store_path=None, 
+    def optimize(self, n_trust_regions = 1, max_evals = None, y = None, X=None, store_path=None, 
                        scoring_method = "mse", criterion = MSELoss(),
                        epochs = 25, learning_rate = 0.005,  
-                       reparam_f = None, ODE_criterion = None, init_conditions = None, scale = True, 
-                       force = None, backprop_f = None, backprop = False,
-                        ode_coefs = None, solve = True, rounds = None, tr_score_prop = 0.5, q = None, eq_system = False, 
-                        nonlinear_ode = False, reg_type = "nl_ham", solve_sample_prop = 1): #, beta = None
+                       reparam_f = None, #ODE_criterion = None, 
+                       init_conditions = None, scale = True, 
+                       force = None, backprop_f = None,
+                        ode_coefs = None, solve = True, tr_score_prop = 0.5, q = None, eq_system = False, 
+                        nonlinear_ode = False, reg_type = "nl_ham", solve_sample_prop = 1, **kwargs): #, beta = None
         """Performs optimization (with cross-validation).
 
         Uses Bayesian Optimization with Gaussian Process priors to optimize ESN hyperparameters.
@@ -1592,7 +1464,6 @@ class RcBayesOpt:
 
 
 
-
         Returns
         -------
         best_arguments : dict
@@ -1600,7 +1471,61 @@ class RcBayesOpt:
 
         """
         #assign attributes
+
+        #solve_sample_prop has to do with random sampling.
+
+        acceptable_args = ['X', 'y', 
+                 'acceptable_args', 
+                 'backprop_f', 
+                 'criterion', 
+                 'epochs', 
+                 'eq_system', 
+                 'force',
+                 'init_conditions', 
+                 'learning_rate', 
+                 'kwargs',
+                 'max_evals',
+                 'n_trust_regions',  
+                 'nonlinear_ode', 
+                 'ode_coefs', 
+                 'ODE_criterion',
+                 'q', 
+                 'reg_type',
+                 'reparam_f',
+                 'scale', 
+                 'scoring_method', 
+                 'solve', 
+                 'solve_sample_prop',
+                 'store_path', 
+                 'tr_score_prop', 
+                 '__class__']
+
+
+        ################################################ START AUTOMATIC ASSIGN ATTRIBUTES ###########################################
+        all_args = {**locals(), **kwargs}
+        del all_args['self']
+
+        #assign the log attributes:
+        for key, val in all_args.items():
+            
+            if key != 'self':
+                if key in acceptable_args:
+                    setattr(self, key, val)
+                else:
+                    assert False, f'invalid argument, {key}'
+            else:
+                assert False, f'invalid argument, {key}'
+
+        #assign leftover args in the acceptable_args_list as None
+        entered_keys = list(all_args.keys())
+        for key in acceptable_args:
+            if key != '__class__':
+                if key not in entered_keys:
+                    setattr(self, key, None)
+        ########################################## END AUTOMATIC ASSIGN ATTRIBUTES ################################################
+
         self.nl = nonlinear_ode
+
         #assign attributes to self
         for key, val in locals().items():
             if key != 'self':
@@ -1615,18 +1540,12 @@ class RcBayesOpt:
         self.dev = {"device" : self.device, "dtype" : self.dtype, "requires_grad" : False}
 
         if not self.ODE_order:
-            # if type(y) == np.ndarray:
-            #     y = torch.tensor(y, device = init_device, requires_grad = False)
-            # if len(y.shape) == 1:
-            #     y = y.view(-1, 1)
-            # if y.device != self.device:
-            #     y = y.to(init_device)
-            # self.y = y.type(self.dtype) 
+            
             self.y = y = _check_y(y, tensor_args = self.dev) 
-            self.x = x = _check_x(x, y, tensor_args = self.dev, supervised = True)
+            self.x = x = _check_x(X, y, tensor_args = self.dev, supervised = True)
         else:
             self.y = None
-            self.x = x = _check_x(x, y, tensor_args = self.dev, supervised = False)
+            self.x = x = _check_x(X, y, tensor_args = self.dev, supervised = False)
 
         if not self.ODE_order:
             self._validate_data(y, x, self.verbose)
@@ -1650,24 +1569,7 @@ class RcBayesOpt:
                                                               n_inputs = self.n_inputs)
             self.reservoir_matrices_id = ray.put(self.reservoir_matrices)
 
-        # self.n_trust_regions = n_trust_regions
-        # self.store_path = store_path
-        # self.max_evals = max_evals
-        # self.q = q
-        # self.eq_system = eq_system
-        # self.rounds = rounds
-        # self.tr_score_prop = tr_score_prop
-        # self.solve = solve
-        # self.ode_coefs = ode_coefs
-        # self.epochs = epochs
-        # self.nl = nonlinear_ode
-        # self.scoring_method = scoring_method
-        # self.criterion = criterion
-        # self.epochs = epochs
-        # self.learning_rate = learning_rate
-        # self.init_conditions = init_conditions
-        # self.scale = scale
-        # self.force = force
+        
 
         
 
@@ -1800,7 +1702,7 @@ class RcBayesOpt:
         test_args = {"scoring_method" : self.scoring_method,
                      "reparam": self.reparam_f,
                      "ODE_criterion" : self.ODE_criterion}
-        cv_args = {"rounds" : self.rounds,
+        cv_args = {
                    "tr_score_prop" : self.tr_score_prop,
                    "log_score": self.log_score}
 
@@ -1861,8 +1763,6 @@ class RcBayesOpt:
         self.X_turbo = torch.zeros((0, dim), device = self.device)
         self.Y_turbo = torch.zeros((0, 1), device = self.device)
         
-        # self.state = self.states[0] = TurboState(dim, length_min = self.length_min, 
-        #                         batch_size=self.batch_size, success_tolerance = self.success_tolerance)
         X_init = get_initial_points(self.scaled_bounds.shape[1], self.initial_samples, device = self.device, dtype = self.dtype)
 
         self.states = {}
@@ -1900,9 +1800,6 @@ class RcBayesOpt:
                 acqf="ts",
                 device = self.device
             )
-            X_next = X_next
-
-            #assert 1 ==0, X_next
 
             objective_input = (self._convert_params(X_next), 0)
             Y_next, updates_dict = self.eval_objective(objective_input) 
@@ -1910,8 +1807,6 @@ class RcBayesOpt:
 
             self.n_evals += self.batch_size
 
-            # print('Y_next', Y_next)
-            # print("self.state", self.state)
             # Update state 
             self.state = update_state(state=self.state, Y_next=Y_next)
 
@@ -1949,8 +1844,6 @@ class RcBayesOpt:
         
         denormed_ = self._denormalize_bounds(best_vals)
 
-        #best_vals = X_turbo[torch.argmax(Y_turbo)]
-
         #####Bad temporary code to change it back into a dictionary
         denormed_free_parameters = list(zip(self.free_parameters, denormed_))
         denormed_free_parameters = dict([ (item[0], item[1].item()) for item in denormed_free_parameters])
@@ -1964,8 +1857,6 @@ class RcBayesOpt:
             if var in best_hyper_parameters:
                 best_hyper_parameters[var] = 10. ** best_hyper_parameters[var] 
 
-
-                
         # Return best parameters
         return best_hyper_parameters
 
@@ -2003,8 +1894,6 @@ class RcBayesOpt:
 
                         X_batch = X_init[ (nrow - final_batch_size) :, : ]
                         initial_batches.append((self._convert_params(X_batch), X_batch, [turbo_id] * len(X_batch)))
-            # else:
-            #     initial_batches.append((self._convert_params(X_init), X_init,  [turbo_id] *  len(X_init)))
 
         return initial_batches, turbo_iter
 
@@ -2127,87 +2016,6 @@ class RcBayesOpt:
         for i, X_next in enumerate(X_nexts):
             Y_next = Y_nexts[i]
             self._update_turbo(X_next = X_next, Y_next = Y_next)
-        
-
-    # def _initial_updates():
-    #     """
-    #     Summary line.
-
-    #     Extended description of function.
-
-    #     Parameters
-    #     ----------
-    #     arg1 : int
-    #         Description of arg1
-    #     arg2 : str
-    #         Description of arg2
-
-    #     Returns
-    #     -------
-    #     int
-    #         Description of return value
-
-    #     """
-    #     self.states[turbo_state_id] = state = TurboState(dim, 
-    #                         length_min = self.length_min, 
-    #                         batch_size=self.batch_size, 
-    #                         success_tolerance = self.success_tolerance)
-    #     pass
-
-    # def _turbo_initial_samples_m(self, X_init, dim, turbo_states):
-        
-    #     for turbo_state_id in range(turbo_states):
-    #         self.states[turbo_state_id] = state = TurboState(dim, 
-    #                             length_min = self.length_min, 
-    #                             batch_size=self.batch_size, 
-    #                             success_tolerance = self.success_tolerance)
-
-    #         if len(X_init) > self.batch_size:
-    #             nrow = X_init.shape[0]
-    #             clean_batches = nrow // self.batch_size
-                
-    #             final_batch_size = nrow-clean_batches*self.batch_size
-    #             for i in range(clean_batches):
-    #                 self._get_cv_samples()
-    #                 X_batch = X_init[ (i*self.batch_size) : ((i+1)*self.batch_size), : ]
-    #                 objective_input = (self._convert_params(X_batch), turbo_state_id)
-    #                 Y_batch, updates_dict = self.eval_objective(objective_input) 
-    #                 self._updates(Y_batch, updates_dict)
-    #                 self.X_turbo = torch.vstack((self.X_turbo, X_batch))
-    #                 self.Y_turbo = torch.vstack((self.Y_turbo, Y_batch))
-    #             else:
-    #                 self._get_cv_samples()
-    #                 # remainder = nrow - final_batch_size
-    #                 # print("clean batches:", clean_batches, ", nrow: ", nrow)
-    #                 # print("remainder", remainder)
-    #                 if final_batch_size == 0:
-
-    #                     pass
-    #                 else:
-    #                     X_batch = X_init[ (nrow - final_batch_size) :, : ]
-    #                     objective_input = (self._convert_params(X_batch), turbo_state_id)
-    #                     Y_batch, updates_dict = self.eval_objective( objective_input) 
-    #                     self._updates(Y_batch, updates_dict)
-
-    #                     self.X_turbo = torch.vstack((self.X_turbo, X_batch))
-    #                     self.Y_turbo = torch.vstack((self.Y_turbo, Y_batch))
-    #         else:
-    #             #Y_init = self.eval_objective( (X_init, turbo_state_id))
-    #             self._get_cv_samples()
-    #             objective_input = (self._convert_params(X_init), turbo_state_id)
-    #             Y_init, updates_dict = self.eval_objective(objective_input) 
-    #             self._updates(Y_init, updates_dict)
-
-    #             self.X_turbo = torch.vstack((self.X_turbo, X_init))
-    #             self.Y_turbo = torch.vstack((self.Y_turbo, Y_init))
-
-    #         self._idx = torch.vstack((self._idx, turbo_state_id * torch.ones((self.initial_samples, 1), dtype=torch.int32)))
-    #         self.n_evals += self.initial_samples
-
-    #     #append the errorz to errorz_step
-    #     #self._errorz_step[turbo_state_id] += [max(self._errorz[turbo_state_id])] * self.initial_samples #n_init
-
-    #     return state
 
     def _updates(self, scores, batch_dict):
         """
@@ -2438,19 +2246,6 @@ class RcBayesOpt:
         if self.last_job_round_num_RCs != 0:
             
             self.turbo_iter += [self.last_job_round_num_RCs]
-
-        #n_trust_regions = 4
-        #turbo_batch_size = 5
-        #RCs_per_turbo_batch = 20
-
-        # turbo_iter = [n_jobs] * n_normal_rounds
-        # i
-        #     turbo_iter += [last_job_round_num_RCs]
-        
-        #n_jobs = 8
-
-        #[8, 8, 20-16 = 4]
-        
         
         count = 0
 
@@ -2531,30 +2326,10 @@ class RcBayesOpt:
                 if self.interactive:
                     self._train_plot_update(pred_ = updates_dicts[0]["pred"], validate_y = updates_dicts[0]["y"], steps_displayed = updates_dicts[0]["pred"].shape[0])
 
-            # else:
-            #     parameters, trust_region_id = parameters
-            #     Y_nexts = []
-                
-            #     #the algorithm is O(n) w.r.t. cv_samples.
-            #     for i in range(self.n_trust_regions):
-
-            #         #can be parallelized:
-            #         X_next = X_nexts[i]
-            #         objective_input = (self._convert_params(X_next), i)
-            #         Y_next, updates_dict = self.eval_objective(objective_input) 
-            #         self._updates(scores = Y_next, batch_dict = updates_dict)
-            #         Y_nexts.append(Y_next)
-            #         self._idx = torch.vstack((self._idx, i * torch.ones((self.batch_size, 1), dtype=torch.int32)))
-
-            #     if self.interactive:
-            #         self._train_plot_update(pred_ = updates_dict[0]["pred"], validate_y = updates_dict[0]["y"], steps_displayed = batch_dict["pred"].shape[0])
             X_nexts_stacked = torch.vstack(X_nexts_mod)
-
             Y_nexts_stacked = torch.vstack(Y_nexts)
 
-
             trust_regions_ids = list(itertools.chain.from_iterable(trust_regions_ids_lst))
-            #trust_regions_ids = np.vstack(trust_regions_ids_lst).reshape(-1,).tolist()
 
             lst_to_sort = [ (i, tr_id) for i, tr_id in enumerate(trust_regions_ids)]
 
@@ -2629,10 +2404,6 @@ class RcBayesOpt:
         
         denormed_ = self._denormalize_bounds(best_vals)
         
-        
-        #best_vals = X_turbo[torch.argmax(Y_turbo)]
-
-        #####Bad temporary code to change it back into a dictionary
         denormed_free_parameters = list(zip(self.free_parameters, denormed_))
         denormed_free_parameters = dict([ (item[0], item[1].item()) for item in denormed_free_parameters])
 
@@ -2640,15 +2411,8 @@ class RcBayesOpt:
         for fixed_parameter in self.fixed_parameters:
             best_hyper_parameters = {fixed_parameter : self.bounds[fixed_parameter], **best_hyper_parameters }
 
-        #log_vars = ['connectivity', 'llambda', 'llambda2', 'noise', 'regularization', 'dt']
-        # for var in self.log_vars:
-        #     if var in best_hyper_parameters:
-        #         best_hyper_parameters[var] = 10. ** best_hyper_parameters[var] 
-
         best_hyper_parameters = self.convert_log_params(best_hyper_parameters)
 
-
-                
         # Return best parameters
         return best_hyper_parameters
         
@@ -2702,14 +2466,12 @@ class RcBayesOpt:
         """
         if alternative_index:
             _, best_indices = self.Y_turbo.view(-1,).topk(len(self.Y_turbo))
-            #I'm too lazy to change this now but best_vals will refer to the selected hps to "recover"
+
             best_vals = self.X_turbo[best_indices[alternative_index]]
         else:
             best_vals = self.X_turbo[torch.argmax(self.Y_turbo)]
             
         denormed_ = self._denormalize_bounds(best_vals)
-
-        #best_vals = X_turbo[torch.argmax(Y_turbo)]
 
         #####Bad temporary code to change it back into a dictionaryf
         denormed_free_parameters = list(zip(self.free_parameters, denormed_))
@@ -2719,14 +2481,7 @@ class RcBayesOpt:
         for fixed_parameter in self.fixed_parameters:
             best_hyper_parameters = {fixed_parameter : self.bounds[fixed_parameter], **best_hyper_parameters }
 
-        #log_vars = ['connectivity', 'llambda', 'llambda2', 'noise', 'regularization', 'dt']
-        # for var in self.log_vars:
-        #     if var in best_hyper_parameters:
-        #         best_hyper_parameters[var] = 10. ** best_hyper_parameters[var] 
-
         best_hyper_parameters = self.convert_log_params(best_hyper_parameters)
 
         # Return best parameters
         return best_hyper_parameters
-
-#EchoStateNetworkCV = RcBayesOpt

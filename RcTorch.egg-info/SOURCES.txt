@@ -5,7 +5,6 @@ LICENSE.txt
 README.md
 README.rst
 meta.yaml
-requirements.txt
 setup.py
 .eggs/README.txt
 .eggs/PyScaffold-2.5.11-py3.8.egg/EGG-INFO/DESCRIPTION.rst
@@ -233,6 +232,7 @@ rctorch/misc.py
 rctorch/rc.py
 rctorch/rc_bayes.py
 rctorch/rc_helpers.py
+rctorch/sparse.py
 rctorch.egg-info/PKG-INFO
 rctorch.egg-info/SOURCES.txt
 rctorch.egg-info/dependency_links.txt
