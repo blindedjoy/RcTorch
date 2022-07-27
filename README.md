@@ -1,6 +1,6 @@
 <img src="https://github.com/blindedjoy/RcTorch/blob/master/fig/png/rctorch_logo.png?raw=true" alt="drawing" style="width:220px;"/>
 
-### Package details and supporting resources
+## Package details and supporting resources
 
 RcTorch is a Pytorch toolset for creating and optimizing Reservoir Computers (RCs). 
 See the complete RcTorch documentation at [readthedocs](https://rctorch.readthedocs.io/en/latest/).
