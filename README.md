@@ -1,6 +1,6 @@
 RcTorch
 =========
-A Pytorch toolset for creating and optimizing Echo State Networks. 
+A Pytorch toolset for creating and optimizing Reservoir Computers (RCs). 
 See the complete RcTorch readthedocs documentation at [readthedocs](https://rctorch.readthedocs.io/en/latest/).
 Also see the preprint of our research paper on the [Arkiv](https://arxiv.org/abs/2207.05870) which demonstrates the power of our software by solving the forced pendulum.
 
@@ -8,8 +8,8 @@ Also see the preprint of our research paper on the [Arkiv](https://arxiv.org/abs
 >Authors: Hayden Joy, Marios Mattheakis (hnjoy@mac.com, mariosmat@seas.harvard.edu)
 
 Contains:
-- A ESN Reservoir architecture class "rc.py"
-- Bayesian Optimization (BO) class "rc_bayes.py" with optimized routines for Echo State Nets through `Botorch` (GPU optimized), can train multiple RCs in parellel durring BO
+- An RC architecture class "rc.py"
+- Bayesian Optimization (BO) class "rc_bayes.py" with optimized routines for RC neural networks through `Botorch` (GPU optimized), can train multiple RCs in parellel durring BO
   - an implimentation of the TURBO-1 algorithm as outlined in this paper: https://github.com/uber-research/TuRBO
 - Capable of solving differential equations (the population equation, the bernoulli equation, a simple harmonic oscillator and a nonlinear oscillator)
 
@@ -24,7 +24,7 @@ https://arxiv.org/abs/1903.05071
 
 ## Using pip
 
-Like most standard libraries, `rctorch` is hosted on [PyPI](https://pypi.org/project/RcTorch/). To install the latest stable relesase, 
+Like most standard libraries, `rctorch` is hosted on [PyPI](https://pypi.org/project/RcTorch/). To install the latest stable release, 
 
 ```bash
 pip install -U rctorch  # '-U' means update to latest version
