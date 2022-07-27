@@ -46,7 +46,7 @@ RcTorch has several built in datasets. Among these is the forced pendulum datase
 fp_data = rctorch.data.load("forced_pendulum", train_proportion = 0.2)
 
 force_train, force_test = fp_data["force"]
-target_train, input_test = fp_data["target"]
+target_train, target_test = fp_data["target"]
 
 #Alternatively you can use sklearn's train_test_split.
 ```
@@ -64,7 +64,8 @@ target_train, input_test = fp_data["target"]
            'bias': 0.49}
 ```
 
-### Setting up your very own EchoStateNetwork
+### Setting up your very own EchoStateNetwork (pure prediction)
+
 ```python
 my_rc = RcNetwork(**hps, random_state = 210, feedback = True)
 
@@ -86,10 +87,27 @@ Bottom plot: The mean squared error plot. The colors correspond to the plot abov
 
 Note: Feedback allows the network to feed in the prediction at the previous timestep as an input. This helps the RC to make longer and more stable predictions in many situations.
 
+### Setting up your very own EchoStateNetwork (parameter-aware version)
+
+In order to add observers (see this [paper](https://aip.scitation.org/doi/abs/10.1063/1.4979665), simply add X as an argument for the RC. In effect this allows the RC to take the force applied as input (this would be known in a situation where a robotic arm were programmed to push on a pendulum for example) and then learn the mapping from the force to the target (in this case the position and momentum of a pendulum).
+
+```python
+my_rc = RcNetwork(**hps, random_state = 210, feedback = True)
+
+#fitting the data:
+my_rc.fit(X = force_train, y = target_train)
+
+#making our prediction
+score, prediction = my_rc.test(X = force_test, y = target_test)
+my_rc.combined_plot()
+
+```
+
+![](https://github.com/blindedjoy/RcTorch/blob/master/fig/png/traj_2.png?raw=true)
 
 ### Bayesian Optimization
 
-Unlike most other reservoir neural network packages ours offers the automatically tune hyper-parameters.
+Unlike most other reservoir neural network packages RcTorch is capable of automatically tune hyper-parameters, saving researchers time and energy. In addition RcTorch predictions are world class!
 
 ```python
 
