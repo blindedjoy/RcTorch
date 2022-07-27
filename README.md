@@ -9,8 +9,8 @@ Also see the preprint of our research paper on the [Arkiv](https://arxiv.org/abs
 
 Contains:
 - An RC architecture class "rc.py"
-- Bayesian Optimization (BO) class "rc_bayes.py" with optimized routines for RC neural networks through `Botorch` (GPU optimized), can train multiple RCs in parellel durring BO
-  - an implimentation of the TURBO-1 algorithm as outlined in this paper: https://github.com/uber-research/TuRBO
+- Bayesian Optimization (BO) class "rc_bayes.py" with optimized routines for RC neural networks through `Botorch` (GPU optimized), can train multiple RCs in parallel during BO
+  - an implimentation of the TURBO algorithm as outlined in this paper: https://github.com/uber-research/TuRBO
 - Capable of solving differential equations (the population equation, the bernoulli equation, a simple harmonic oscillator and a nonlinear oscillator)
 
 Reference to prior instantiation:  
