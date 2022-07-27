@@ -5,7 +5,7 @@ See the complete RcTorch readthedocs documentation at [readthedocs](https://rcto
 Also see the preprint of our research paper on the [Arkiv](https://arxiv.org/abs/2207.05870) which demonstrates the power of our software by solving the forced pendulum.
 
 >License: 2020-2022 MIT  
->Authors: Hayden Joy, Marios Mattheakis
+>Authors: Hayden Joy, Marios Mattheakis 
 >Contact: hnjoy@mac.com, mariosmat@seas.harvard.edu
 
 Contains:
