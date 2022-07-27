@@ -77,7 +77,7 @@ my_rc.combined_plot()
 
 ```
 
-![](https://raw.githubusercontent.com/blindedjoy/RcTorch-private/blob/master/resources/pure_prediction1.jpg)
+![alt text](https://github.com/blindedjoy/RcTorch/blob/[branch]/traj_1.pdf?raw=true)
 
 
 
