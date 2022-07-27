@@ -1,9 +1,10 @@
 RcTorch
 =========
 A Pytorch toolset for creating and optimizing Echo State Networks. 
-
->License: 2020-2021 MIT  
+See the complete RcTorch readthedocs documentation at `readthedocs <https://rctorch.readthedocs.io/en/latest/>`_.
+>License: 2020-2022 MIT  
 >Authors: Hayden Joy, Marios Mattheakis
+>Contact: hnjoy@mac.com, mariosmat@seas.harvard.edu
 
 Contains:
 - A ESN Reservoir architecture class "rc.py"

@@ -7,7 +7,7 @@ See the complete RcTorch readthedocs documentation at `readthedocs <https://rcto
 
     - License: 2020-2022 MIT  
     - Authors: Hayden Joy, Marios Mattheakis
-
+    - Contact: hnjoy@mac.com, mariosmat@seas.harvard.edu
 .. contents::
 
 
