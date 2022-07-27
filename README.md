@@ -79,8 +79,12 @@ my_rc.combined_plot()
 
 ![](https://github.com/blindedjoy/RcTorch/blob/master/fig/png/traj_1.png?raw=true)
 
+Top plot: Above the ground truth data of the forced pendulum is plotted as dashed lines. The position training set is plotted in yellow and the position prediction is plotted in red. The momentum training set prediction is plotted in blue and the test set prediction is plotted in red.
 
-Feedback allows the network to feed in the prediction at the previous timestep as an input. This helps the RC to make longer and more stable predictions in many situations.
+Bottom plot: The mean squared error plot. The colors correspond to the plot above. For more information see our [Arkiv paper](https://arxiv.org/abs/2207.05870). 
+
+
+Note: Feedback allows the network to feed in the prediction at the previous timestep as an input. This helps the RC to make longer and more stable predictions in many situations.
 
 
 ### Bayesian Optimization
