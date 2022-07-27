@@ -1,9 +1,9 @@
 <img src="https://github.com/blindedjoy/RcTorch/blob/master/fig/png/rctorch_logo.png?raw=true" alt="drawing" style="width:220px;"/>
 
-# Package Details and supporting resources
+# Package details and supporting resources
 
 RcTorch is a Pytorch toolset for creating and optimizing Reservoir Computers (RCs). 
-See the complete RcTorch readthedocs documentation at [readthedocs](https://rctorch.readthedocs.io/en/latest/).
+See the complete RcTorch documentation at [readthedocs](https://rctorch.readthedocs.io/en/latest/).
 Also see the preprint of our research paper on the [Arkiv](https://arxiv.org/abs/2207.05870) which demonstrates the power of our software by solving the forced pendulum.
 
 >License: 2020-2022 MIT  
