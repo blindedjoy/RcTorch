@@ -77,7 +77,7 @@ my_rc.combined_plot()
 
 ```
 
-![alt text](fig/traj_1.pdf?raw=true)
+![](https://github.com/blindedjoy/RcTorch/blob/master/fig/png/traj_1.png?raw=true)
 
 
 Feedback allows the network to feed in the prediction at the previous timestep as an input. This helps the RC to make longer and more stable predictions in many situations.
