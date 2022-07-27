@@ -1,4 +1,4 @@
-RcTorch <img src="https://github.com/blindedjoy/RcTorch/blob/master/fig/png/rctorch_logo.png?raw=true" alt="drawing" style="width:200px;"/> 
+<img src="https://github.com/blindedjoy/RcTorch/blob/master/fig/png/rctorch_logo.png?raw=true" alt="drawing" style="width:20px;"/> RcTorch 
 =========
 A Pytorch toolset for creating and optimizing Reservoir Computers (RCs). 
 See the complete RcTorch readthedocs documentation at [readthedocs](https://rctorch.readthedocs.io/en/latest/).
