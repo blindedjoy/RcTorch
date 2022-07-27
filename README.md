@@ -132,3 +132,5 @@ rc_bo = RcBayesOpt(bounds = bounds_dict,
                     )
 ```
 
+![](https://github.com/blindedjoy/RcTorch/blob/master/fig/png/BO.png?raw=true)
+

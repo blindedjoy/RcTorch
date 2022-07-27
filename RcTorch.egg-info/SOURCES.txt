@@ -3,7 +3,6 @@ AUTHORS
 CHANGES
 LICENSE.txt
 README.md
-README.rst
 meta.yaml
 setup.py
 .eggs/README.txt
