@@ -7,6 +7,8 @@ Also see the preprint of our research paper on the [Arkiv](https://arxiv.org/abs
 >License: 2020-2022 MIT  
 >Authors: Hayden Joy, Marios Mattheakis (hnjoy@mac.com, mariosmat@seas.harvard.edu)
 
+![](https://github.com/blindedjoy/RcTorch/blob/master/fig/png/rctorch_logo.png?raw=true)
+
 Contains:
 - An RC architecture class "rc.py"
 - Bayesian Optimization (BO) class "rc_bayes.py" with optimized routines for RC neural networks through `Botorch` (GPU optimized), can train multiple RCs in parallel during BO
