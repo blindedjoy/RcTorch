@@ -2,6 +2,8 @@ RcTorch
 =========
 A Pytorch toolset for creating and optimizing Echo State Networks. 
 See the complete RcTorch readthedocs documentation at [readthedocs](https://rctorch.readthedocs.io/en/latest/).
+Also see the preprint of our research paper which demonstrates the power of our software by solving the forced pendulum on the [Arkiv](https://arxiv.org/abs/2207.05870).
+
 >License: 2020-2022 MIT  
 >Authors: Hayden Joy, Marios Mattheakis
 >Contact: hnjoy@mac.com, mariosmat@seas.harvard.edu
