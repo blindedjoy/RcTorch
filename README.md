@@ -1,4 +1,4 @@
-<img src="https://github.com/blindedjoy/RcTorch/blob/master/fig/png/rctorch_logo.png?raw=true" alt="drawing" style="width:220px;" class="center" />
+<img src="https://github.com/blindedjoy/RcTorch/blob/master/fig/png/rctorch_logo2.png?raw=true" alt="drawing" style="width:220px;" class="center" />
 
 ## Package details and supporting resources
 
