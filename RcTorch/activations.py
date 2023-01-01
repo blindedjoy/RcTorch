@@ -1,5 +1,6 @@
 import torch
 from torch.nn import Tanh
+import numpy as np
 
 def _sech2(z):
     """
@@ -118,7 +119,7 @@ def _sech2_(z):
         Description of return value
 
     """
-    return (1/(np.cosh(z)))**2
+    return (1/(torch.cosh(z)))**2
 
 def _identity(z):
     """

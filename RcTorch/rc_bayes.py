@@ -1860,40 +1860,29 @@ class RcBayesOpt:
         # Return best parameters
         return best_hyper_parameters
 
-    def _turbo_split_initial_samples(self, X_inits, n_jobs, turbo_id_override = None):
+    def _turbo_split_initial_samples(self, X_inits, turbo_id_override = None):
 
         """This function splits and prepares the initial samples in order to get initialization done."""
-        batch_size = n_jobs
-        nrow = X_inits[0].shape[0]
-        n_clean_batches = nrow // batch_size
-        final_batch_size = nrow-n_clean_batches*n_jobs
-
         initial_batches = []
         turbo_iter = []
+        args = X_inits
+        for i, x in enumerate(range(0, len(args), self.n_jobs)):
+            X_batch = args[x:x+self.n_jobs]
 
-        turbo_iter += [batch_size] * n_clean_batches
+            assert type(X_batch) == list, "probably put X_batch, a tensor in a list..."
 
-        if final_batch_size != 0:
-            turbo_iter += [final_batch_size]
+            X_batch = torch.vstack(X_batch)
+            rc_inputs = self._convert_params(X_batch)
 
-        for turbo_id, X_init in enumerate(X_inits):
-
-            #if there is just one that we want to update, ie we are doing a restart:
             if turbo_id_override:
-                turbo_id = turbo_id_override
-            
-            for i in range(n_clean_batches):
-                
-                if len(X_init) > batch_size:
-                        X_batch = X_init[ (i*batch_size) : ((i+1)*batch_size), : ]
-                        initial_batches.append((self._convert_params(X_batch), X_batch, [turbo_id] * len(X_batch)))
-                else:
-                    if final_batch_size == 0:
-                        pass
-                    else:
+                ids = [turbo_id_override] * self.n_jobs
+            else:
+                ids = list(range(self.n_jobs))
 
-                        X_batch = X_init[ (nrow - final_batch_size) :, : ]
-                        initial_batches.append((self._convert_params(X_batch), X_batch, [turbo_id] * len(X_batch)))
+            ids = ids[:len(X_batch)] #[turbo_id] * len(X_batch) #turbo ids match n_jobs
+
+            initial_batches.append((rc_inputs, X_batch, ids))
+            turbo_iter += ids
 
         return initial_batches, turbo_iter
 
@@ -1984,11 +1973,13 @@ class RcBayesOpt:
                                                              batch_size=self.batch_size, 
                                                              success_tolerance = self.success_tolerance)
 
-        X_inits = [get_initial_points(self.scaled_bounds.shape[1], self.initial_samples, device = self.device, dtype = self.dtype) for i in range(self.n_trust_regions)]
+        X_inits = [get_initial_points(self.scaled_bounds.shape[1], 1, device = self.device, dtype = self.dtype) for i in range(self.initial_samples*self.n_jobs)]
+        #X_inits = [get_initial_points(self.scaled_bounds.shape[1], self.initial_samples, device = self.device, dtype = self.dtype) for i in range(self.n_trust_regions)]
 
         self._get_cv_samples()
 
-        objective_inputs, turbo_iter = self._turbo_split_initial_samples(X_inits, self.n_jobs)
+        objective_inputs, turbo_iter = self._turbo_split_initial_samples(X_inits)
+        #objective_inputs, turbo_iter = self._turbo_split_initial_samples(X_inits, self.n_jobs)
 
         results = []
         for objective_input in objective_inputs:
@@ -2299,7 +2290,7 @@ class RcBayesOpt:
 
             X_nexts = sorted(X_nexts, key = lambda x: x[0])
             X_nexts = [ (x[1], x[2]) for x in X_nexts]
-
+            
             start = time.time()
             self._get_cv_samples()
             self.parallel_trust_regions = True

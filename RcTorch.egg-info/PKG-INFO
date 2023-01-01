@@ -8,6 +8,7 @@ Author: Hayden Joy
 Author-email: hnjoy@mac.com
 License: Harvard
 Keywords: Echo State Network,ESN,Reservoir Computing,Echo State Networks,Optimization,BoTorch,PyTorch,Bayesian
+Platform: UNKNOWN
 Classifier: Development Status :: 3 - Alpha
 Classifier: Intended Audience :: Developers
 Classifier: Topic :: Software Development :: Build Tools
@@ -17,14 +18,19 @@ Description-Content-Type: text/markdown
 License-File: LICENSE.txt
 License-File: AUTHORS
 
-RcTorch
-=========
-A Pytorch toolset for creating and optimizing Reservoir Computers (RCs). 
-See the complete RcTorch readthedocs documentation at [readthedocs](https://rctorch.readthedocs.io/en/latest/).
+<img src="https://github.com/blindedjoy/RcTorch/blob/master/fig/png/rctorch_logo2.png?raw=true" alt="drawing" style="width:220px;" class="center" />
+
+## Package details and supporting resources
+
+RcTorch is a Pytorch toolset for creating and optimizing Reservoir Computers (RCs). 
+See the complete RcTorch documentation at [readthedocs](https://rctorch.readthedocs.io/en/latest/).
 Also see the preprint of our research paper on the [Arkiv](https://arxiv.org/abs/2207.05870) which demonstrates the power of our software by solving the forced pendulum.
 
 >License: 2020-2022 MIT  
 >Authors: Hayden Joy, Marios Mattheakis (hnjoy@mac.com, mariosmat@seas.harvard.edu)
+
+
+
 
 Contains:
 - An RC architecture class "rc.py"
@@ -150,4 +156,8 @@ rc_bo = RcBayesOpt(bounds = bounds_dict,
                     **rc_specs
                     )
 ```
+
+![](https://github.com/blindedjoy/RcTorch/blob/master/fig/png/BO.png?raw=true)
+
+
 
